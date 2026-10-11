@@ -1,0 +1,102 @@
+name: Log Studio
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "ingest = build waveform for the web page, export = render and upload"
+        type: choice
+        options: [ingest, export]
+        default: ingest
+      source_folder:
+        description: "Drive job folder ID (the web page fills this in)"
+        required: true
+      segments:
+        description: "Export: JSON [[start_s,end_s],...]; blank = entire"
+        required: false
+        default: ""
+      kind:
+        description: "Export: audio (.ogg) or video (.mp4)"
+        type: choice
+        options: [video, audio]
+        default: video
+      prefix:
+        description: "Export: file name prefix"
+        required: false
+        default: "log"
+      title:
+        description: "Export: YouTube title (blank = prefix)"
+        required: false
+        default: ""
+      part_min:
+        description: "Export: part length in minutes (0 = one file)"
+        required: false
+        default: "600"
+      quality:
+        description: "Export: Vorbis quality 0-10 (audio)"
+        required: false
+        default: "10"
+      mode:
+        description: "Export: video look"
+        type: choice
+        options: [visualizer, still]
+        default: visualizer
+      resolution:
+        description: "Export: video size"
+        type: choice
+        options: [1280x720, 1920x1080, 854x480]
+        default: 1280x720
+      youtube:
+        description: "Export: also upload video to YouTube (unlisted)"
+        type: boolean
+        default: true
+      delete_source:
+        description: "Export: trash the uploaded audio from Drive when finished"
+        type: boolean
+        default: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355            # GitHub hard limit is 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install -q numpy google-api-python-client google-auth google-auth-httplib2
+      - name: Run
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}   # Drive account
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}           # YouTube account
+          IN_ACTION: ${{ inputs.action }}
+          IN_SRC: ${{ inputs.source_folder }}
+          IN_SEGMENTS: ${{ inputs.segments }}
+          IN_PREFIX: ${{ inputs.prefix }}
+          IN_TITLE: ${{ inputs.title }}
+          IN_PART: ${{ inputs.part_min }}
+          IN_Q: ${{ inputs.quality }}
+          IN_YT: ${{ inputs.youtube }}
+          IN_DEL: ${{ inputs.delete_source }}
+          OUT_FOLDER: ${{ vars.OUTPUT_FOLDER_ID }}
+        run: |
+          EXTRA=""
+          if [ "$IN_YT" != "true" ]; then EXTRA="$EXTRA --no-youtube"; fi
+          if [ "$IN_DEL" = "true" ]; then EXTRA="$EXTRA --delete-source"; fi
+          python cloud_pipeline.py "$IN_ACTION" $EXTRA \
+            --source-folder "$IN_SRC" \
+            --output-folder "$OUT_FOLDER" \
+            --segments "$IN_SEGMENTS" \
+            --kind "${{ inputs.kind }}" \
+            --prefix "$IN_PREFIX" \
+            --title "$IN_TITLE" \
+            --part-min "$IN_PART" \
+            --quality "$IN_Q" \
+            --mode "${{ inputs.mode }}" \
+            --res "${{ inputs.resolution }}"
