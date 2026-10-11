@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1e1e1e">
+<title>ADPCM Log Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{
+  --bg:#1e1e1e; --plot:#111111; --panel:#252526; --line:#3c3c3c; --text:#e6e6e6; --dim:#9a9a9a;
+  --wave:#4FC3F7; --seg:#FFB300; --start:#00E676; --end:#FF5252; --ok:#6fd08c; --bad:#ff6b6b;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 "Schibsted Grotesk",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;padding:max(10px,env(safe-area-inset-top)) 10px max(24px,env(safe-area-inset-bottom))}
+main{max-width:1100px;margin:0 auto}
+h1{font-size:1.3rem;font-weight:800;letter-spacing:-.01em;margin:4px 0 8px}
+button,input,select{font:inherit;color:var(--text)}
+button{background:#3a3d41;border:1px solid #4a4d52;border-radius:6px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){background:#45494e}
+button.primary{background:var(--wave);color:#04202c;border-color:var(--wave);font-weight:600}
+button.primary:hover:not(:disabled){background:#7fd5fa}
+button:disabled{opacity:.4;cursor:default}
+input[type=text],input[type=password],input[type=number],select{background:var(--plot);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--wave);outline-offset:1px}
+.row{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:6px 0}
+.row label{color:var(--dim);font-size:.9rem}
+fieldset{border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:6px 8px 8px;min-width:0}
+legend{padding:0 6px;color:var(--dim);font-size:.9rem}
+.scroll{overflow:auto;max-height:150px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th{position:sticky;top:0;background:var(--panel);text-align:center;font-weight:600;padding:4px 8px;border-bottom:1px solid var(--line)}
+td{padding:4px 8px;border-bottom:1px solid #2d2d2d;text-align:center;white-space:nowrap}
+td.name{text-align:left;white-space:normal;overflow-wrap:anywhere;min-width:180px}
+tr.sel td{background:#37414a}
+.plotcap{color:var(--dim);font-size:.82rem;margin:8px 0 2px}
+canvas{display:block;width:100%;background:var(--plot);border:1px solid #555;touch-action:pan-y;cursor:crosshair}
+#cOv{height:110px} #cZm{height:140px}
+input[type=range]{width:100%;accent-color:var(--wave);margin:8px 0}
+.mono{font-variant-numeric:tabular-nums}
+#timeIn{width:118px;text-align:center}
+.small{width:64px;padding:7px 4px}
+.lbl{display:inline-block;min-width:130px}
+.hint{color:var(--dim);font-size:.82rem}
+progress{width:100%;height:10px;accent-color:var(--wave)}
+#status{color:var(--text);margin:4px 0}
+#log{background:var(--plot);border:1px solid var(--line);border-radius:6px;padding:6px 8px;height:110px;overflow:auto;
+  font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#ddd;white-space:pre-wrap}
+#log a,#runs a{color:var(--wave)}
+.err{color:var(--bad)} .good{color:var(--ok)}
+#runs{list-style:none;margin:0;padding:0;font-size:.9rem}
+#runs li{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid #2d2d2d}
+.st-success{color:var(--ok)} .st-failure,.st-cancelled{color:var(--bad)} .st-in_progress,.st-queued{color:var(--seg)}
+#cfg{display:none} #cfg.open{display:block}
+.check{display:flex;gap:8px;align-items:center;color:var(--text)!important}
+.check input{width:18px;height:18px}
+</style>
+</head>
+<body>
+<main>
+  <h1>ADPCM Log Studio</h1>
+
+  <div class="row">
+    <input id="pick" type="file" multiple hidden accept="audio/*,.wav,.wave,.bwf,.adpcm,.au,.aif,.aiff,.flac,.mp3,.ogg,.opus,.m4a,.aac,.wma">
+    <button id="btnFiles">Select files…</button>
+    <label for="sortBy">Sort by:</label>
+    <select id="sortBy">
+      <option value="mod">Modified time</option>
+      <option value="name">Timestamp in name</option>
+      <option value="fname">File name</option>
+    </select>
+    <button id="btnOpen">Open earlier…</button>
+    <button id="btnCfg">Connections</button>
+    <button id="btnCancel" disabled>Cancel</button>
+  </div>
+  <div id="folderLbl" class="hint">No files selected</div>
+
+  <fieldset id="cfg">
+    <legend>Connections (saved in this browser only)</legend>
+    <div class="row"><label class="lbl" for="repo">GitHub repo</label><input id="repo" type="text" placeholder="owner/name" autocomplete="off"></div>
+    <div class="row"><label class="lbl" for="branch">Branch</label><input id="branch" type="text" value="main"></div>
+    <div class="row"><label class="lbl" for="gid">Google client ID</label><input id="gid" type="text" autocomplete="off" style="min-width:260px"></div>
+    <div class="row"><label class="lbl" for="pat">GitHub token</label><input id="pat" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+    <div class="row"><button id="saveCfg" class="primary">Save</button></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Files in chronological order (oldest → newest)</legend>
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>File</th><th>Timestamp</th><th>Size</th><th>Starts at (master)</th></tr></thead>
+      <tbody id="files"><tr><td colspan="5" class="hint">Select files, then Upload and analyse.</td></tr></tbody>
+    </table></div>
+    <div class="row"><button id="btnUpload" class="primary" disabled>Upload and analyse</button>
+      <span class="hint">The cloud merges the files and builds the waveform. This takes a few minutes.</span></div>
+  </fieldset>
+
+  <div class="plotcap">Full timeline (click or drag to seek; grey lines = file boundaries)</div>
+  <canvas id="cOv"></canvas>
+  <div class="plotcap">Zoom view (centered on playhead, click to seek)</div>
+  <canvas id="cZm"></canvas>
+  <input id="slider" type="range" min="0" max="1000" value="0" step="1" disabled aria-label="Position">
+
+  <div class="row" id="nav">
+    <button id="btnPlay" disabled>▶ Play</button>
+    <input id="timeIn" class="mono" type="text" value="0:00:00.000" disabled aria-label="Position">
+    <span id="totalLbl" class="mono hint">/ 0:00:00.000</span>
+    <span id="steps" class="row" style="margin:0"></span>
+    <label for="zoomSel">Zoom window:</label>
+    <select id="zoomSel" disabled>
+      <option>5 s</option><option selected>30 s</option><option>2 min</option><option>10 min</option><option>1 hour</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <button id="btnStart" disabled>Set Start Point</button><span id="startLbl" class="mono" style="min-width:150px">Start: —</span>
+    <button id="btnEnd" disabled>Set End Point</button><span id="endLbl" class="mono" style="min-width:150px">End: —</span>
+    <button id="btnSave" disabled>Save Segment</button>
+    <button id="btnRemove" disabled>Remove Selected</button>
+    <button id="btnClear" disabled>Clear Queue</button>
+    <span class="hint">Space: play/pause &nbsp; C: start/end point</span>
+  </div>
+
+  <fieldset>
+    <legend>Segment queue (exported back-to-back, in this order)</legend>
+    <div class="scroll" style="max-height:110px"><table>
+      <thead><tr><th>#</th><th>Start</th><th>End</th><th>Length</th></tr></thead>
+      <tbody id="segs"></tbody>
+    </table></div>
+  </fieldset>
+  <div id="queueLbl" class="hint">Queue empty</div>
+
+  <div class="row hint">Output: public Drive folder set in the repository. Videos can also go to YouTube (unlisted).</div>
+
+  <div class="row">
+    <button id="btnAudio" disabled>Export Queue (.ogg)</button>
+    <button id="btnAudioAll" disabled>Export ENTIRE Audio (.ogg)</button>
+    <label for="aPrefix">prefix</label><input id="aPrefix" type="text" value="log" style="width:90px">
+    <label for="quality">Vorbis quality</label><input id="quality" type="number" min="0" max="10" value="10" class="small">
+    <label for="aPart">Part length (min, 0 = one file)</label><input id="aPart" type="text" inputmode="numeric" value="60" class="small">
+  </div>
+  <div class="row">
+    <button id="btnVideo" disabled>Export Queue (.mp4)</button>
+    <button id="btnVideoAll" disabled>Export ENTIRE Video (.mp4)</button>
+    <label for="vPrefix">prefix</label><input id="vPrefix" type="text" value="visualizer" style="width:110px">
+    <label for="vPart">Part (min)</label><input id="vPart" type="text" inputmode="numeric" value="600" class="small">
+    <select id="res"><option>1280x720</option><option>1920x1080</option><option>854x480</option></select>
+  </div>
+  <div class="row">
+    <label for="vmode">Video look:</label>
+    <select id="vmode"><option value="visualizer">Animated visualizer</option><option value="still">Image / GIF only (fast)</option></select>
+    <input id="bgPick" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden>
+    <button id="btnBg">Image / GIF…</button><button id="btnBgClear">Clear</button><span id="bgLbl" class="hint">black</span>
+  </div>
+  <div class="row">
+    <label class="check"><input id="ytOn" type="checkbox" checked> Upload videos to YouTube (unlisted)</label>
+    <label class="check"><input id="delSrc" type="checkbox"> Remove uploaded audio from Drive after this export</label>
+  </div>
+
+  <progress id="bar" value="0" max="1000"></progress>
+  <div id="status">Idle</div>
+  <div id="log" role="log" aria-live="polite"></div>
+
+  <fieldset>
+    <legend>Cloud runs</legend>
+    <ul id="runs"><li class="hint">Add your connections to see runs.</li></ul>
+  </fieldset>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const CFG_KEY = "logstudio.cfg", JOB_KEY = "logstudio.lastJob";
+const ZOOMS = {"5 s": 5, "30 s": 30, "2 min": 120, "10 min": 600, "1 hour": 3600};
+const COL = {plot: "#111111", wave: "#4FC3F7", seg: "#FFB300", start: "#00E676", end: "#FF5252"};
+const pad2 = n => String(n).padStart(2, "0");
+
+let cfg = JSON.parse(localStorage.getItem(CFG_KEY) || "{}");
+const S = {
+  items: [], jobId: null, meta: null, peaks: null, binS: 0, nb: 0, dur: 0, peak: 0.01, bounds: [],
+  pos: 0, startT: null, endT: null, segs: [], selSegs: new Set(),
+  ready: false, busy: false, cancel: false, bgFile: null,
+  audio: null, proxyReady: false, playing: false, playTimer: null,
+  zoomWin: [0, 0], lastRecenter: 0, ovCache: null
+};
+
+/* ------------------------------------------------------------- helpers */
+function fmtTime(t, dec = 3) {
+  let ms = Math.round(Math.max(0, t) * 1000);
+  const h = Math.floor(ms / 3600000); ms %= 3600000;
+  const m = Math.floor(ms / 60000); ms %= 60000;
+  const s = Math.floor(ms / 1000); ms %= 1000;
+  const out = `${h}:${pad2(m)}:${pad2(s)}`;
+  return dec ? out + "." + String(ms).padStart(3, "0").slice(0, dec) : out;
+}
+function parseTime(text) {
+  let total = 0;
+  for (const p of text.trim().split(":")) { const v = parseFloat(p); if (isNaN(v)) throw new Error("bad time"); total = total * 60 + v; }
+  return total;
+}
+const human = n => { for (const u of ["B","KB","MB","GB","TB"]) { if (n < 1024 || u === "TB") return n.toFixed(u === "B" ? 0 : 1) + " " + u; n /= 1024; } };
+const fmtDate = ms => ms ? new Date(ms).toLocaleString([], {year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "—";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+function natKey(s) { return s.toLowerCase().split(/(\d+)/).map(p => /^\d+$/.test(p) ? +p : p); }
+function natCmp(a, b) {
+  const x = natKey(a), y = natKey(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] === y[i]) continue;
+    if (typeof x[i] === "number" && typeof y[i] === "number") return x[i] - y[i];
+    return String(x[i]) < String(y[i]) ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+function log(msg) {
+  const el = $("#log"), d = new Date();
+  el.append(`[${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}] ${msg}\n`);
+  el.scrollTop = el.scrollHeight;
+}
+function logLink(text, url) {
+  const el = $("#log"), a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = text;
+  el.append("          ", a, "\n"); el.scrollTop = el.scrollHeight;
+}
+function setStatus(t, cls) { const s = $("#status"); s.textContent = t; s.className = cls || ""; }
+function setProgress(f) { $("#bar").value = Math.max(0, Math.min(1, f)) * 1000; }
+
+/* ------------------------------------------------------------- reading local files */
+async function wavDuration(file) {
+  if (!/\.(wav|wave|bwf)$/i.test(file.name)) return null;
+  try {
+    const dv = new DataView(await file.slice(0, 65536).arrayBuffer());
+    if (dv.byteLength < 12 || dv.getUint32(0) !== 0x52494646) return null;
+    let p = 12, byteRate = 0, rate = 0, fact = 0;
+    while (p + 8 <= dv.byteLength) {
+      const id = dv.getUint32(p), sz = dv.getUint32(p + 4, true);
+      if (id === 0x666d7420) { rate = dv.getUint32(p + 12, true); byteRate = dv.getUint32(p + 16, true); }
+      if (id === 0x66616374) fact = dv.getUint32(p + 8, true);
+      if (id === 0x64617461) {
+        if (fact && rate) return fact / rate;
+        const off = p + 8;
+        const size = (sz === 0 || sz === 0xFFFFFFFF || off + sz > file.size) ? file.size - off : sz;
+        return byteRate ? size / byteRate : null;
+      }
+      p += 8 + sz + (sz & 1);
+    }
+  } catch (e) {}
+  return null;
+}
+function nameTime(n) {
+  const m = n.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})[ T_.-]?(\d{2})[-_.:]?(\d{2})[-_.:]?(\d{2})/);
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  return isNaN(d) ? null : d.getTime();
+}
+
+$("#btnFiles").onclick = () => $("#pick").click();
+$("#pick").onchange = async e => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+  setStatus("Reading files…");
+  S.items = [];
+  for (const f of files) S.items.push({file: f, name: f.name, size: f.size, mod: f.lastModified, dur: await wavDuration(f)});
+  setStatus("Idle");
+  $("#folderLbl").textContent = `${files.length} file(s) selected`;
+  sortItems();
+  $("#btnUpload").disabled = false;
+};
+$("#sortBy").onchange = () => { if (S.items.length && !S.jobId) sortItems(); };
+
+function sortItems() {
+  const how = $("#sortBy").value;
+  for (const it of S.items) {
+    const nt = how === "name" ? nameTime(it.name) : null;
+    it.t = nt ?? it.mod;
+  }
+  if (how === "fname") S.items.sort((a, b) => natCmp(a.name, b.name));
+  else S.items.sort((a, b) => a.t - b.t || natCmp(a.name, b.name));
+  let acc = 0, known = true;
+  for (const it of S.items) { it.est = known ? acc : null; if (it.dur == null) known = false; else acc += it.dur; }
+  renderFiles(S.items.map(it => ({name: it.name, t: it.t, size: it.size, start: it.est})));
+}
+function renderFiles(rows) {
+  $("#files").innerHTML = rows.length ? rows.map((r, i) =>
+    `<tr><td>${i + 1}</td><td class="name">${esc(r.name)}</td><td>${fmtDate(r.t)}</td>
+     <td>${r.size != null ? human(r.size) : "—"}</td><td>${r.start != null ? fmtTime(r.start) : "—"}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="hint">Select files, then Upload and analyse.</td></tr>`;
+}
+
+/* ------------------------------------------------------------- connections */
+function loadCfg() {
+  $("#repo").value = cfg.repo || ""; $("#branch").value = cfg.branch || "main";
+  $("#gid").value = cfg.gid || ""; $("#pat").value = cfg.pat || "";
+  if (!(cfg.repo && cfg.pat && cfg.gid)) $("#cfg").classList.add("open");
+}
+$("#btnCfg").onclick = () => $("#cfg").classList.toggle("open");
+$("#saveCfg").onclick = () => {
+  cfg = {repo: $("#repo").value.trim(), branch: $("#branch").value.trim() || "main",
+         gid: $("#gid").value.trim(), pat: $("#pat").value.trim()};
+  localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+  initGoogle(); loadRuns(); $("#cfg").classList.remove("open"); setStatus("Connections saved.", "good");
+};
+function needCfg() {
+  if (cfg.repo && cfg.pat && cfg.gid) return true;
+  $("#cfg").classList.add("open"); setStatus("Fill in the connections first.", "err"); return false;
+}
+
+/* ------------------------------------------------------------- Google Drive */
+let tokenClient = null, gToken = null, gExp = 0;
+function initGoogle() {
+  if (!cfg.gid || !window.google?.accounts) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: cfg.gid, scope: "https://www.googleapis.com/auth/drive", callback: () => {}});
+}
+window.addEventListener("load", () => setTimeout(initGoogle, 600));
+function getToken(prompt) {
+  return new Promise((resolve, reject) => {
+    if (!tokenClient) initGoogle();
+    if (!tokenClient) return reject(new Error("Google sign-in is not ready. Check the client ID and try again."));
+    tokenClient.callback = r => {
+      if (r.error) return reject(new Error(r.error_description || r.error));
+      gToken = r.access_token; gExp = Date.now() + (r.expires_in - 60) * 1000; resolve(gToken);
+    };
+    tokenClient.error_callback = e => reject(new Error(e.message || e.type || "Sign-in cancelled"));
+    tokenClient.requestAccessToken({prompt});
+  });
+}
+async function token() { if (!gToken || Date.now() > gExp - 300000) await getToken(""); return gToken; }
+async function driveJson(path, init = {}) {
+  const r = await fetch("https://www.googleapis.com/drive/v3/" + path, {...init,
+    headers: {Authorization: "Bearer " + await token(), "Content-Type": "application/json", ...(init.headers || {})}});
+  if (!r.ok) throw new Error("Drive: " + (await r.text()).slice(0, 200));
+  return r.status === 204 ? null : r.json();
+}
+async function listFolder(id) {
+  const out = []; let pageToken = "";
+  do {
+    const r = await driveJson(`files?pageSize=1000&fields=nextPageToken,files(id,name,mimeType,size,modifiedTime,appProperties)` +
+      `&q=${encodeURIComponent(`'${id}' in parents and trashed=false`)}` + (pageToken ? `&pageToken=${pageToken}` : ""));
+    out.push(...r.files); pageToken = r.nextPageToken || "";
+  } while (pageToken);
+  return out;
+}
+async function createFolder(name, parent) {
+  const body = {name, mimeType: "application/vnd.google-apps.folder"};
+  if (parent) body.parents = [parent];
+  return (await driveJson("files?fields=id", {method: "POST", body: JSON.stringify(body)})).id;
+}
+async function ensureRoot() {
+  const q = `name='Log Studio uploads' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents`;
+  const f = await driveJson("files?fields=files(id)&q=" + encodeURIComponent(q));
+  return f.files.length ? f.files[0].id : createFolder("Log Studio uploads", null);
+}
+const CHUNK = 8 * 1024 * 1024;
+async function uploadFile(file, meta, onBytes) {
+  const init = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {
+    method: "POST",
+    headers: {Authorization: "Bearer " + await token(), "Content-Type": "application/json; charset=UTF-8",
+              "X-Upload-Content-Type": file.type || "application/octet-stream", "X-Upload-Content-Length": String(file.size)},
+    body: JSON.stringify(meta)});
+  if (!init.ok) throw new Error("Drive: " + (await init.text()).slice(0, 200));
+  const url = init.headers.get("Location");
+  if (!url) throw new Error("Drive did not return an upload address.");
+  let off = 0, tries = 0;
+  while (off < file.size) {
+    if (S.cancel) throw new Error("Cancelled");
+    const end = Math.min(off + CHUNK, file.size);
+    try {
+      const r = await fetch(url, {method: "PUT", headers: {"Content-Range": `bytes ${off}-${end - 1}/${file.size}`}, body: file.slice(off, end)});
+      if (r.status === 308 || r.ok) { onBytes(end - off); off = end; tries = 0; continue; }
+      if (r.status === 401) await getToken("");
+      throw new Error("HTTP " + r.status);
+    } catch (e) {
+      if (++tries > 6) throw new Error(`Upload of ${file.name} failed: ${e.message}`);
+      await wait(1000 * 2 ** tries);
+    }
+  }
+}
+async function driveDownload(id, size, onProgress) {
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {headers: {Authorization: "Bearer " + await token()}});
+  if (!r.ok) throw new Error("Drive download failed: HTTP " + r.status);
+  const reader = r.body.getReader(), chunks = []; let got = 0;
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length; onProgress?.(got, size);
+  }
+  return new Blob(chunks);
+}
+
+/* ------------------------------------------------------------- GitHub */
+const gh = (path, init = {}) => fetch("https://api.github.com/repos/" + cfg.repo + path, {...init, headers: {
+  Authorization: "Bearer " + cfg.pat, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(init.headers || {})}});
+async function dispatch(inputs) {
+  const r = await gh("/actions/workflows/log-studio.yml/dispatches", {method: "POST", body: JSON.stringify({ref: cfg.branch || "main", inputs})});
+  if (r.status !== 204) throw new Error("GitHub: " + (await r.text()).slice(0, 200));
+}
+async function latestRun() {
+  const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=1");
+  if (!r.ok) return null;
+  return (await r.json()).workflow_runs[0] || null;
+}
+let runsTimer = null;
+async function loadRuns() {
+  clearTimeout(runsTimer);
+  if (!cfg.repo || !cfg.pat) return;
+  try {
+    const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=5");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const runs = (await r.json()).workflow_runs;
+    $("#runs").innerHTML = runs.length ? runs.map(w => {
+      const st = w.status === "completed" ? w.conclusion : w.status;
+      return `<li><a href="${w.html_url}" target="_blank" rel="noopener">${fmtDate(Date.parse(w.created_at))}</a>
+        <span class="st-${st}">${st.replace("_", " ")}</span></li>`;
+    }).join("") : `<li class="hint">No runs yet.</li>`;
+    if (runs.some(w => w.status !== "completed")) runsTimer = setTimeout(loadRuns, 20000);
+  } catch (e) {
+    $("#runs").innerHTML = `<li class="err">Could not load runs (${esc(e.message)}). Check the repository and token.</li>`;
+  }
+}
+
+/* ------------------------------------------------------------- busy / buttons */
+const NAV = ["#slider", "#btnPlay", "#timeIn", "#zoomSel", "#btnStart", "#btnEnd", "#btnSave", "#btnRemove", "#btnClear"];
+const EXPORT = ["#btnAudio", "#btnAudioAll", "#btnVideo", "#btnVideoAll"];
+function refreshButtons() {
+  for (const s of NAV) $(s).disabled = !S.ready;
+  document.querySelectorAll("#steps button").forEach(b => b.disabled = !S.ready);
+  for (const s of EXPORT) $(s).disabled = !(S.ready && !S.busy);
+  $("#btnFiles").disabled = $("#btnOpen").disabled = S.busy;
+  $("#btnUpload").disabled = S.busy || !S.items.length;
+  $("#btnCancel").disabled = !S.busy;
+  if (S.ready && !S.proxyReady) $("#btnPlay").disabled = true;
+}
+$("#btnCancel").onclick = () => { S.cancel = true; setStatus("Cancelling…"); };
+function guardUnload(on) {
+  window.onbeforeunload = on ? e => { e.preventDefault(); e.returnValue = ""; } : null;
+}
+let wake = null;
+async function keepAwake(on) {
+  try { if (on) wake = await navigator.wakeLock?.request("screen"); else { await wake?.release(); wake = null; } } catch (e) {}
+}
+
+/* ------------------------------------------------------------- upload + ingest */
+$("#btnUpload").onclick = async () => {
+  if (!S.items.length || S.busy || !needCfg()) return;
+  S.busy = true; S.cancel = false; refreshButtons(); guardUnload(true);
+  resetProject();
+  try {
+    await getToken("select_account");                    // must start inside the tap
+    await keepAwake(true);
+    setStatus("Preparing Drive folder…");
+    const root = await ensureRoot();
+    const now = new Date();
+    const jobName = `job-${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+    const job = await createFolder(jobName, root);
+    const total = S.items.reduce((s, i) => s + i.size, 0);
+    let sent = 0;
+    log(`Uploading ${S.items.length} file(s), ${human(total)}`);
+    for (let i = 0; i < S.items.length; i++) {
+      const it = S.items[i];
+      log(`  ${i + 1}/${S.items.length} ${it.name}`);
+      await uploadFile(it.file, {
+        name: `${String(i + 1).padStart(4, "0")}_${it.name}`, parents: [job],
+        modifiedTime: new Date(it.mod).toISOString(),
+        appProperties: {origName: it.name, origT: String(Math.round(it.t))}
+      }, n => { sent += n; setProgress(sent / total); setStatus(`Uploading… ${human(sent)} of ${human(total)}`); });
+    }
+    S.jobId = job;
+    localStorage.setItem(JOB_KEY, JSON.stringify({id: job, name: jobName}));
+    setStatus("Starting the cloud job…");
+    const t0 = Date.now();
+    await dispatch({action: "ingest", source_folder: job});
+    log("Cloud analysis started. You can close this page and come back with “Open earlier…”.");
+    await keepAwake(false); guardUnload(false);
+    await waitForIngest(job, t0);
+  } catch (e) {
+    setStatus(e.message || String(e), "err"); log("ERROR: " + (e.message || e));
+  } finally {
+    await keepAwake(false); guardUnload(false);
+    S.busy = false; setProgress(0); refreshButtons();
+  }
+};
+
+async function waitForIngest(job, t0) {
+  setTimeout(loadRuns, 5000);
+  let runUrlShown = false;
+  while (!S.cancel) {
+    const kids = await listFolder(job);
+    if (kids.some(f => f.name === "_meta.json")) { await loadProject(job, kids); return; }
+    const run = await latestRun();
+    if (run && Date.parse(run.created_at) >= t0 - 15000) {
+      if (!runUrlShown) { logLink("Cloud job", run.html_url); runUrlShown = true; }
+      setStatus(`Cloud analysis: ${run.status.replace("_", " ")}…`);
+      if (run.status === "completed" && run.conclusion !== "success") {
+        const again = await listFolder(job);
+        if (again.some(f => f.name === "_meta.json")) { await loadProject(job, again); return; }
+        throw new Error("The cloud job failed. Open the run to see why.");
+      }
+    } else setStatus("Waiting for the cloud job to start…");
+    await wait(15000);
+  }
+  setStatus("Cancelled. Use “Open earlier…” to continue later.");
+}
+
+/* ------------------------------------------------------------- open earlier */
+$("#btnOpen").onclick = async () => {
+  if (S.busy || !needCfg()) return;
+  try {
+    await getToken("select_account");
+    const root = await ensureRoot();
+    const jobs = (await listFolder(root)).filter(f => f.mimeType === "application/vnd.google-apps.folder")
+      .sort((a, b) => b.name.localeCompare(a.name)).slice(0, 12);
+    if (!jobs.length) return setStatus("No earlier uploads found.");
+    const pick = prompt("Open which upload? Type its number:\n" + jobs.map((j, i) => `${i + 1}. ${j.name}`).join("\n"), "1");
+    const j = jobs[(parseInt(pick, 10) || 0) - 1];
+    if (!j) return;
+    S.busy = true; refreshButtons(); resetProject();
+    const kids = await listFolder(j.id);
+    if (!kids.some(f => f.name === "_meta.json")) throw new Error("That upload was never analysed (no waveform yet).");
+    S.jobId = j.id;
+    await loadProject(j.id, kids);
+  } catch (e) { setStatus(e.message || String(e), "err"); }
+  finally { S.busy = false; refreshButtons(); }
+};
+
+/* ------------------------------------------------------------- project load */
+function resetProject() {
+  stopPlay(false);
+  S.ready = false; S.meta = null; S.peaks = null; S.proxyReady = false; S.segs = []; S.selSegs.clear();
+  S.startT = S.endT = null; S.pos = 0; S.ovCache = null;
+  if (S.audio) { URL.revokeObjectURL(S.audio.src); S.audio = null; }
+  $("#startLbl").textContent = "Start: —"; $("#endLbl").textContent = "End: —";
+  renderSegs(); requestDraw();
+}
+async function loadProject(job, kids) {
+  const by = n => kids.find(f => f.name === n);
+  setStatus("Loading waveform…");
+  const meta = JSON.parse(await (await driveDownload(by("_meta.json").id, 0)).text());
+  const peaks = new Int8Array(await (await driveDownload(by("_peaks.bin").id, +by("_peaks.bin").size,
+    (g, t) => setProgress(g / (t || g)))).arrayBuffer());
+  S.meta = meta; S.peaks = peaks; S.nb = meta.bins; S.binS = meta.bin_frames / meta.rate; S.dur = meta.duration;
+  let mx = 1; for (let i = 0; i < peaks.length; i++) { const a = Math.abs(peaks[i]); if (a > mx) mx = a; }
+  S.peak = mx / 128; S.bounds = meta.files.map(f => f.start);
+
+  // files table from Drive (timestamps survive the upload) + start offsets from the analysis
+  const src = kids.filter(f => !f.name.startsWith("_") && !f.mimeType.startsWith("application/vnd.google-apps"))
+    .sort((a, b) => natCmp(a.name, b.name));
+  let k = 0;
+  renderFiles(src.map(f => {
+    const name = f.appProperties?.origName || f.name.replace(/^\d{4}_/, "");
+    const start = (k < meta.files.length && meta.files[k].name === name) ? meta.files[k++].start : null;
+    return {name, t: +(f.appProperties?.origT || Date.parse(f.modifiedTime)), size: +f.size, start};
+  }));
+  $("#folderLbl").textContent = `Project ${meta.files.length} file(s), ${fmtTime(S.dur, 0)}` +
+    (meta.skipped?.length ? ` (${meta.skipped.length} skipped: could not be decoded)` : "");
+  S.ready = true; S.pos = 0;
+  $("#slider").max = Math.max(1, Math.round(S.dur * 1000));
+  $("#totalLbl").textContent = "/ " + fmtTime(S.dur);
+  setPos(0); refreshButtons();
+  log(`Waveform ready: ${fmtTime(S.dur)}`);
+  setStatus("Loading audio for playback…");
+  const px = by("_proxy.m4a");
+  try {
+    const blob = await driveDownload(px.id, +px.size, (g, t) => { setProgress(g / (t || g)); setStatus(`Loading audio… ${Math.round(g / (t || g) * 100)}%`); });
+    S.audio = new Audio(URL.createObjectURL(new Blob([blob], {type: "audio/mp4"})));
+    S.audio.preload = "auto";
+    S.audio.onended = () => stopPlay(true, true);
+    S.proxyReady = true;
+  } catch (e) { log("Playback unavailable: " + e.message); }
+  setProgress(0); setStatus("Master ready"); refreshButtons();
+}
+
+/* ------------------------------------------------------------- drawing */
+function setupCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [ctx, w, h];
+}
+function envelope(W, t0, t1) {
+  const mn = new Float32Array(W), mx = new Float32Array(W), P = S.peaks, nb = S.nb;
+  for (let x = 0; x < W; x++) {
+    let b0 = Math.floor((t0 + (t1 - t0) * x / W) / S.binS), b1 = Math.floor((t0 + (t1 - t0) * (x + 1) / W) / S.binS);
+    b0 = Math.max(0, Math.min(nb - 1, b0)); b1 = Math.max(b0 + 1, Math.min(nb, b1));
+    let lo = 127, hi = -128;
+    for (let b = b0; b < b1; b++) { const a = P[2 * b], c = P[2 * b + 1]; if (a < lo) lo = a; if (c > hi) hi = c; }
+    mn[x] = lo / 128; mx[x] = hi / 128;
+  }
+  return [mn, mx];
+}
+function niceStep(span) {
+  for (const s of [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 28800]) if (span / s <= 6) return s;
+  return 43200;
+}
+function drawPane(c, t0, t1, withBounds, dec) {
+  const [ctx, W, H] = setupCanvas(c), top = 4, bot = H - 16, mid = (top + bot) / 2, half = (bot - top) / 2;
+  ctx.fillStyle = COL.plot; ctx.fillRect(0, 0, W, H);
+  if (!S.ready || t1 <= t0) return;
+  const key = `${W}|${t0}|${t1}`;
+  let env;
+  if (withBounds) { if (!S.ovCache || S.ovCache.key !== key) S.ovCache = {key, env: envelope(W, t0, t1)}; env = S.ovCache.env; }
+  else env = envelope(W, t0, t1);
+  const lim = S.peak * 1.05, X = t => (t - t0) / (t1 - t0) * W;
+  // segments, boundaries
+  ctx.fillStyle = "rgba(255,179,0,.35)";
+  for (const g of S.segs) if (g.b > t0 && g.a < t1) ctx.fillRect(X(Math.max(g.a, t0)), top, X(Math.min(g.b, t1)) - X(Math.max(g.a, t0)), bot - top);
+  ctx.fillStyle = COL.wave;
+  for (let x = 0; x < W; x++) {
+    const y0 = mid - env[1][x] / lim * half, y1 = mid - env[0][x] / lim * half;
+    ctx.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+  }
+  if (withBounds && S.bounds.length > 1) {
+    ctx.strokeStyle = "rgba(136,136,136,.45)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (const b of S.bounds.slice(1)) { const x = Math.round(X(b)) + .5; ctx.moveTo(x, top); ctx.lineTo(x, bot); }
+    ctx.stroke();
+  }
+  // axis
+  ctx.fillStyle = "#bbb"; ctx.font = "10px system-ui"; ctx.textBaseline = "top";
+  const step = niceStep(t1 - t0);
+  for (let v = Math.ceil(t0 / step) * step; v <= t1; v += step) {
+    const x = X(v); ctx.fillRect(x, bot, 1, 3);
+    const label = fmtTime(v, dec), w = ctx.measureText(label).width;
+    ctx.fillText(label, Math.min(Math.max(0, x - w / 2), W - w), bot + 4);
+  }
+  for (const [t, col, lw] of [[S.startT, COL.start, 1.8], [S.endT, COL.end, 1.8], [S.pos, "#fff", 1.3]]) {
+    if (t == null || t < t0 || t > t1) continue;
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(X(t), top); ctx.lineTo(X(t), bot); ctx.stroke();
+  }
+}
+function zoomSpan() { return ZOOMS[$("#zoomSel").value]; }
+function recenter() {
+  const W = zoomSpan();
+  if (S.dur <= W) S.zoomWin = [0, S.dur];
+  else { const w0 = Math.min(Math.max(0, S.pos - W / 2), S.dur - W); S.zoomWin = [w0, w0 + W]; }
+  S.lastRecenter = performance.now();
+}
+let drawQueued = false;
+function requestDraw() {
+  if (drawQueued) return; drawQueued = true;
+  requestAnimationFrame(() => {
+    drawQueued = false;
+    drawPane($("#cOv"), 0, S.dur, true, 0);
+    const [w0, w1] = S.zoomWin;
+    drawPane($("#cZm"), w0, w1, false, (w1 - w0) <= 120 ? 1 : 0);
+  });
+}
+window.addEventListener("resize", () => { S.ovCache = null; requestDraw(); });
+
+/* ------------------------------------------------------------- navigation */
+function setPos(t, opts = {}) {
+  if (!S.ready) return;
+  t = Math.min(Math.max(0, +t), S.dur); S.pos = t;
+  if (S.playing && !opts.fromPlay && S.audio) S.audio.currentTime = t;
+  if (!opts.fromSlider) $("#slider").value = Math.round(t * 1000);
+  if (!(opts.fromPlay && document.activeElement === $("#timeIn"))) $("#timeIn").value = fmtTime(t);
+  const [w0, w1] = S.zoomWin, W = w1 - w0;
+  if (!opts.fromPlay) recenter();
+  else if (W > 0 && W < S.dur) {                          // keep the zoom view following the playhead
+    const need = t < w0 || t > w1 || (t > w1 - 0.1 * W && w1 < S.dur - 1e-3);
+    if (need && performance.now() - S.lastRecenter > 400) recenter();
+  }
+  requestDraw();
+}
+$("#slider").oninput = e => setPos(e.target.value / 1000, {fromSlider: true});
+$("#zoomSel").onchange = () => { recenter(); requestDraw(); $("#zoomSel").blur(); };
+$("#timeIn").onkeydown = e => {
+  if (e.key !== "Enter") return;
+  try { setPos(parseTime($("#timeIn").value)); $("#timeIn").blur(); }
+  catch (err) { $("#timeIn").value = fmtTime(S.pos); }
+};
+for (const [label, d] of [["−1m", -60], ["−10s", -10], ["−1s", -1], ["−0.1s", -0.1], ["+0.1s", 0.1], ["+1s", 1], ["+10s", 10], ["+1m", 60]]) {
+  const b = document.createElement("button"); b.textContent = label; b.disabled = true;
+  b.onclick = () => setPos(S.pos + d); $("#steps").append(b);
+}
+function bindCanvas(c, toTime) {
+  let down = false;
+  const seek = e => { const r = c.getBoundingClientRect(); setPos(toTime((e.clientX - r.left) / r.width)); };
+  c.addEventListener("pointerdown", e => { if (!S.ready) return; down = true; c.setPointerCapture(e.pointerId); seek(e); });
+  c.addEventListener("pointermove", e => { if (down) seek(e); });
+  c.addEventListener("pointerup", () => down = false);
+  c.addEventListener("pointercancel", () => down = false);
+}
+bindCanvas($("#cOv"), f => f * S.dur);
+bindCanvas($("#cZm"), f => S.zoomWin[0] + f * (S.zoomWin[1] - S.zoomWin[0]));
+
+/* ------------------------------------------------------------- playback */
+$("#btnPlay").onclick = () => S.playing ? stopPlay(true) : startPlay();
+async function startPlay() {
+  if (!S.ready || S.playing || !S.audio) return;
+  if (S.pos >= S.dur - 0.05) setPos(0);
+  if (S.audio.readyState < 1) await new Promise(r => S.audio.addEventListener("loadedmetadata", r, {once: true}));
+  S.audio.currentTime = S.pos;
+  S.audio.play().then(() => {
+    S.playing = true; $("#btnPlay").textContent = "‖ Pause";
+    S.playTimer = setInterval(() => setPos(S.audio.currentTime, {fromPlay: true}), 100);
+  }).catch(e => log("Playback error: " + e.message));
+}
+function stopPlay(update = true, atEnd = false) {
+  const was = S.playing;
+  S.playing = false; clearInterval(S.playTimer); S.playTimer = null;
+  if (S.audio) S.audio.pause();
+  $("#btnPlay").textContent = "▶ Play";
+  if (was && update && S.ready) setPos(atEnd ? S.dur : (S.audio ? S.audio.currentTime : S.pos));
+}
+
+/* ------------------------------------------------------------- segments */
+const r3 = t => Math.round(t * 1000) / 1000;
+function setStart() { S.startT = r3(S.pos); $("#startLbl").textContent = "Start: " + fmtTime(S.startT); requestDraw(); }
+function setEnd() { S.endT = r3(S.pos); $("#endLbl").textContent = "End: " + fmtTime(S.endT); requestDraw(); }
+$("#btnStart").onclick = setStart; $("#btnEnd").onclick = setEnd;
+function togglePoint() {                                   // C key: start, then end, then a new start
+  if (S.startT == null || S.endT != null) { S.endT = null; $("#endLbl").textContent = "End: —"; setStart(); }
+  else if (r3(S.pos) <= S.startT) setStatus("End point must be after the start point", "err");
+  else setEnd();
+}
+$("#btnSave").onclick = () => {
+  if (S.startT == null || S.endT == null) return setStatus("Set both a start and an end point first.", "err");
+  if (S.endT <= S.startT) return setStatus("End point must be after the start point.", "err");
+  S.segs.push({a: S.startT, b: Math.min(S.endT, r3(S.dur))});
+  S.startT = S.endT = null; $("#startLbl").textContent = "Start: —"; $("#endLbl").textContent = "End: —";
+  setStatus("Segment saved."); renderSegs(); requestDraw();
+};
+$("#btnRemove").onclick = () => { S.segs = S.segs.filter((_, i) => !S.selSegs.has(i)); S.selSegs.clear(); renderSegs(); requestDraw(); };
+$("#btnClear").onclick = () => { S.segs = []; S.selSegs.clear(); renderSegs(); requestDraw(); };
+function partSeconds(inputId, dflt) {
+  const m = parseFloat($(inputId).value);
+  if (isNaN(m)) return dflt;
+  return m > 0 ? Math.max(60, m * 60) : 0;
+}
+function renderSegs() {
+  $("#segs").innerHTML = S.segs.map((g, i) => `<tr data-i="${i}" class="${S.selSegs.has(i) ? "sel" : ""}">
+    <td>${i + 1}</td><td>${fmtTime(g.a)}</td><td>${fmtTime(g.b)}</td><td>${fmtTime(g.b - g.a)}</td></tr>`).join("");
+  updateQueueLabel();
+}
+$("#segs").onclick = e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const i = +tr.dataset.i; S.selSegs.has(i) ? S.selSegs.delete(i) : S.selSegs.add(i); renderSegs();
+};
+function updateQueueLabel() {
+  if (!S.segs.length) { $("#queueLbl").textContent = "Queue empty"; return; }
+  const secs = S.segs.reduce((s, g) => s + g.b - g.a, 0), pa = partSeconds("#aPart", 3600), pv = partSeconds("#vPart", 36000);
+  $("#queueLbl").textContent = `${S.segs.length} segment(s), total ${fmtTime(secs)}  →  ${pa ? Math.ceil(secs / pa) : 1} audio part(s), ${pv ? Math.ceil(secs / pv) : 1} video part(s)`;
+}
+$("#aPart").oninput = $("#vPart").oninput = updateQueueLabel;
+
+/* ------------------------------------------------------------- keys */
+document.addEventListener("keydown", e => {
+  const tag = document.activeElement?.tagName;
+  if (!S.ready || tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || e.ctrlKey || e.metaKey) return;
+  if (e.code === "Space" && tag !== "BUTTON") { e.preventDefault(); S.playing ? stopPlay(true) : startPlay(); }
+  else if (e.key === "c" || e.key === "C") { e.preventDefault(); togglePoint(); }
+});
+
+/* ------------------------------------------------------------- background image */
+$("#btnBg").onclick = () => $("#bgPick").click();
+$("#bgPick").onchange = e => { S.bgFile = e.target.files[0] || null; $("#bgLbl").textContent = S.bgFile ? S.bgFile.name : "black"; };
+$("#btnBgClear").onclick = () => { S.bgFile = null; $("#bgPick").value = ""; $("#bgLbl").textContent = "black"; };
+
+/* ------------------------------------------------------------- export */
+async function doExport(kind, whole) {
+  if (!S.ready || S.busy || !needCfg()) return;
+  if (!whole && !S.segs.length) return setStatus("Add at least one segment to the queue first (or use the ENTIRE button).", "err");
+  const still = kind === "video" && $("#vmode").value === "still";
+  if (still && !S.bgFile) return setStatus("'Image / GIF only' needs a picture: click 'Image / GIF…' first.", "err");
+  S.busy = true; refreshButtons(); stopPlay(true);
+  try {
+    await token();                                          // sign-in popup (if needed) stays inside the tap
+    const kids = await listFolder(S.jobId);
+    if (!kids.some(f => f.name === "_meta.json")) throw new Error("This project's analysis files are gone from Drive.");
+    if (kind === "video") {
+      for (const f of kids.filter(f => f.name.toLowerCase().startsWith("_background.")))
+        await driveJson(`files/${f.id}`, {method: "DELETE"});
+      if (S.bgFile) {
+        setStatus("Uploading background…");
+        await uploadFile(S.bgFile, {name: "_background" + (S.bgFile.name.match(/\.[^.]+$/)?.[0] || ".png"), parents: [S.jobId]}, () => {});
+      }
+    }
+    const isVideo = kind === "video";
+    const inputs = {
+      action: "export", source_folder: S.jobId,
+      segments: whole ? "" : JSON.stringify(S.segs.map(g => [g.a, g.b])),
+      kind, prefix: ($(isVideo ? "#vPrefix" : "#aPrefix").value.trim() || (isVideo ? "visualizer" : "log")),
+      title: "", part_min: String(partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60),
+      quality: String(Math.min(10, Math.max(0, parseInt($("#quality").value, 10) || 10))),
+      mode: $("#vmode").value, resolution: $("#res").value,
+      youtube: $("#ytOn").checked ? "true" : "false", delete_source: $("#delSrc").checked ? "true" : "false"
+    };
+    const t0 = Date.now();
+    await dispatch(inputs);
+    log(`Export started in the cloud (${kind}${whole ? ", entire" : ", " + S.segs.length + " segment(s)"}).`);
+    setStatus("Export started. You can close this page; GitHub will notify you when it finishes.", "good");
+    setTimeout(async () => {
+      const run = await latestRun();
+      if (run && Date.parse(run.created_at) >= t0 - 15000) logLink("Cloud job (links appear in its Summary)", run.html_url);
+      loadRuns();
+    }, 6000);
+  } catch (e) { setStatus(e.message || String(e), "err"); log("ERROR: " + (e.message || e)); }
+  finally { S.busy = false; refreshButtons(); }
+}
+$("#btnAudio").onclick = () => doExport("audio", false);
+$("#btnAudioAll").onclick = () => doExport("audio", true);
+$("#btnVideo").onclick = () => doExport("video", false);
+$("#btnVideoAll").onclick = () => doExport("video", true);
+
+/* ------------------------------------------------------------- start */
+loadCfg(); refreshButtons(); renderSegs(); requestDraw(); loadRuns();
+</script>
+</body>
+</html>
