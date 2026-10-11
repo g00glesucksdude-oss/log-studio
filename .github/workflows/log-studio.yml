@@ -47,9 +47,17 @@ on:
         options: [1280x720, 1920x1080, 854x480]
         default: 1280x720
       youtube:
-        description: "Export: also upload video to YouTube (unlisted)"
+        description: "Export video: upload to YouTube (unlisted)"
         type: boolean
         default: true
+      drive_copy:
+        description: "Export video: also save a public copy in the Drive outputs/video folder"
+        type: boolean
+        default: false
+      stamp:
+        description: "Append the upload date/time to titles and descriptions"
+        type: boolean
+        default: false
       delete_source:
         description: "Export: trash the uploaded audio from Drive when finished"
         type: boolean
@@ -83,15 +91,17 @@ jobs:
           IN_PART: ${{ inputs.part_min }}
           IN_Q: ${{ inputs.quality }}
           IN_YT: ${{ inputs.youtube }}
+          IN_COPY: ${{ inputs.drive_copy }}
+          IN_STAMP: ${{ inputs.stamp }}
           IN_DEL: ${{ inputs.delete_source }}
-          OUT_FOLDER: ${{ vars.OUTPUT_FOLDER_ID }}
         run: |
           EXTRA=""
           if [ "$IN_YT" != "true" ]; then EXTRA="$EXTRA --no-youtube"; fi
+          if [ "$IN_COPY" = "true" ]; then EXTRA="$EXTRA --drive-copy"; fi
+          if [ "$IN_STAMP" = "true" ]; then EXTRA="$EXTRA --stamp"; fi
           if [ "$IN_DEL" = "true" ]; then EXTRA="$EXTRA --delete-source"; fi
           python cloud_pipeline.py "$IN_ACTION" $EXTRA \
             --source-folder "$IN_SRC" \
-            --output-folder "$OUT_FOLDER" \
             --segments "$IN_SEGMENTS" \
             --kind "${{ inputs.kind }}" \
             --prefix "$IN_PREFIX" \
