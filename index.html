@@ -56,14 +56,38 @@ progress{width:100%;height:10px;accent-color:var(--wave)}
 #runs{list-style:none;margin:0;padding:0;font-size:.9rem}
 #runs li{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid #2d2d2d}
 .st-success{color:var(--ok)} .st-failure,.st-cancelled{color:var(--bad)} .st-in_progress,.st-queued{color:var(--seg)}
-#cfg{display:none} #cfg.open{display:block}
+.titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.titlebar h1{margin:4px 0 8px}
+.icon{padding:7px 9px;display:inline-flex;align-items:center;justify-content:center;line-height:0}
+.icon svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:14px;
+  width:min(600px,94vw);max-height:90vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h2{font-size:1.1rem;margin:0}
+.dlghead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+details>summary{cursor:pointer;font-weight:600;padding:4px 0}
+.job{border-top:1px solid var(--line);padding:8px 0}
+.jh,.ex{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.ex{margin:6px 0 0 14px;padding-left:8px;border-left:2px solid var(--line)}
+.links{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap}
+.links a{color:var(--wave)}
+.links button,.job button{padding:4px 9px;font-size:.85rem}
+button.danger{border-color:#7a3a3a;color:#ffb0b0}
+.tag{font-size:.75rem;padding:1px 7px;border-radius:10px;border:1px solid var(--line)}
+.tag.audio{color:var(--seg)} .tag.video{color:var(--wave)}
+.et{overflow-wrap:anywhere}
 .check{display:flex;gap:8px;align-items:center;color:var(--text)!important}
 .check input{width:18px;height:18px}
 </style>
 </head>
 <body>
 <main>
-  <h1>ADPCM Log Studio</h1>
+  <div class="titlebar">
+    <h1>ADPCM Log Studio</h1>
+    <button id="btnGear" class="icon" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
 
   <div class="row">
     <input id="pick" type="file" multiple hidden accept="audio/*,.wav,.wave,.bwf,.adpcm,.au,.aif,.aiff,.flac,.mp3,.ogg,.opus,.m4a,.aac,.wma">
@@ -74,20 +98,54 @@ progress{width:100%;height:10px;accent-color:var(--wave)}
       <option value="name">Timestamp in name</option>
       <option value="fname">File name</option>
     </select>
-    <button id="btnOpen">Open earlier…</button>
-    <button id="btnCfg">Connections</button>
+    <button id="btnOpen">Audio tree</button>
     <button id="btnCancel" disabled>Cancel</button>
   </div>
   <div id="folderLbl" class="hint">No files selected</div>
 
-  <fieldset id="cfg">
-    <legend>Connections (saved in this browser only)</legend>
-    <div class="row"><label class="lbl" for="repo">GitHub repo</label><input id="repo" type="text" placeholder="owner/name" autocomplete="off"></div>
-    <div class="row"><label class="lbl" for="branch">Branch</label><input id="branch" type="text" value="main"></div>
-    <div class="row"><label class="lbl" for="gid">Google client ID</label><input id="gid" type="text" autocomplete="off" style="min-width:260px"></div>
-    <div class="row"><label class="lbl" for="pat">GitHub token</label><input id="pat" type="password" autocomplete="off" placeholder="github_pat_…"></div>
-    <div class="row"><button id="saveCfg" class="primary">Save</button></div>
-  </fieldset>
+  <dialog id="dlg">
+    <div class="dlghead"><h2>Settings</h2><button id="btnDlgClose">Done</button></div>
+
+    <fieldset>
+      <legend>Connections (saved in this browser only)</legend>
+      <div class="row"><label class="lbl" for="repo">GitHub repo</label><input id="repo" type="text" placeholder="owner/name" autocomplete="off"></div>
+      <div class="row"><label class="lbl" for="branch">Branch</label><input id="branch" type="text" value="main"></div>
+      <div class="row"><label class="lbl" for="gid">Google client ID</label><input id="gid" type="text" autocomplete="off" style="min-width:240px"></div>
+      <div class="row"><label class="lbl" for="pat">GitHub token</label><input id="pat" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+      <div class="row"><button id="saveCfg" class="primary">Save connections</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Audio export</legend>
+      <div class="row"><label class="lbl" for="aPrefix">Prefix</label><input id="aPrefix" type="text" value="log" style="width:120px"></div>
+      <div class="row"><label class="lbl" for="quality">Vorbis quality (0-10)</label><input id="quality" type="number" min="0" max="10" value="10" class="small"></div>
+      <div class="row"><label class="lbl" for="aPart">Part length (min, 0 = one file)</label><input id="aPart" type="text" inputmode="numeric" value="60" class="small"></div>
+      <div class="hint">Audio goes to Logger workspace / outputs / audio in Drive (public link).</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Video export</legend>
+      <div class="row"><label class="lbl" for="vPrefix">Prefix</label><input id="vPrefix" type="text" value="visualizer" style="width:140px"></div>
+      <div class="row"><label class="lbl" for="vTitle">Custom title</label><input id="vTitle" type="text" placeholder="blank = use prefix" style="min-width:220px"></div>
+      <div class="row"><label class="lbl" for="res">Resolution</label>
+        <select id="res"><option>1280x720</option><option>1920x1080</option><option>854x480</option></select></div>
+      <div class="row"><label class="lbl" for="vPart">Part length (min)</label><input id="vPart" type="text" inputmode="numeric" value="600" class="small"></div>
+      <div class="row"><label class="lbl" for="vmode">Video look</label>
+        <select id="vmode"><option value="visualizer">Animated visualizer</option><option value="still">Image / GIF only (fast)</option></select></div>
+      <div class="row">
+        <input id="bgPick" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden>
+        <button id="btnBg">Image / GIF…</button><button id="btnBgClear">Clear</button><span id="bgLbl" class="hint">black</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Upload targets and titles</legend>
+      <label class="check row"><input id="ytOn" type="checkbox" checked> Videos: upload to YouTube (unlisted)</label>
+      <label class="check row"><input id="driveCopy" type="checkbox"> Videos: also save a public copy in Drive (outputs / video)</label>
+      <label class="check row"><input id="stampOn" type="checkbox"> Add the upload date and time to titles and descriptions</label>
+      <label class="check row"><input id="delSrc" type="checkbox"> After an export, move the uploaded audio to the Drive trash</label>
+    </fieldset>
+  </dialog>
 
   <fieldset>
     <legend>Files in chronological order (oldest → newest)</legend>
@@ -134,36 +192,33 @@ progress{width:100%;height:10px;accent-color:var(--wave)}
   </fieldset>
   <div id="queueLbl" class="hint">Queue empty</div>
 
-  <div class="row hint">Output: public Drive folder set in the repository. Videos can also go to YouTube (unlisted).</div>
-
   <div class="row">
     <button id="btnAudio" disabled>Export Queue (.ogg)</button>
     <button id="btnAudioAll" disabled>Export ENTIRE Audio (.ogg)</button>
-    <label for="aPrefix">prefix</label><input id="aPrefix" type="text" value="log" style="width:90px">
-    <label for="quality">Vorbis quality</label><input id="quality" type="number" min="0" max="10" value="10" class="small">
-    <label for="aPart">Part length (min, 0 = one file)</label><input id="aPart" type="text" inputmode="numeric" value="60" class="small">
   </div>
   <div class="row">
     <button id="btnVideo" disabled>Export Queue (.mp4)</button>
     <button id="btnVideoAll" disabled>Export ENTIRE Video (.mp4)</button>
-    <label for="vPrefix">prefix</label><input id="vPrefix" type="text" value="visualizer" style="width:110px">
-    <label for="vPart">Part (min)</label><input id="vPart" type="text" inputmode="numeric" value="600" class="small">
-    <select id="res"><option>1280x720</option><option>1920x1080</option><option>854x480</option></select>
   </div>
-  <div class="row">
-    <label for="vmode">Video look:</label>
-    <select id="vmode"><option value="visualizer">Animated visualizer</option><option value="still">Image / GIF only (fast)</option></select>
-    <input id="bgPick" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden>
-    <button id="btnBg">Image / GIF…</button><button id="btnBgClear">Clear</button><span id="bgLbl" class="hint">black</span>
-  </div>
-  <div class="row">
-    <label class="check"><input id="ytOn" type="checkbox" checked> Upload videos to YouTube (unlisted)</label>
-    <label class="check"><input id="delSrc" type="checkbox"> Remove uploaded audio from Drive after this export</label>
-  </div>
+  <div class="hint">Prefixes, titles, quality, resolution and upload targets are in the gear menu.</div>
 
   <progress id="bar" value="0" max="1000"></progress>
   <div id="status">Idle</div>
   <div id="log" role="log" aria-live="polite"></div>
+
+  <fieldset>
+    <details id="treeBox">
+      <summary>Audio tree</summary>
+      <div class="row">
+        <button id="btnTreeRefresh">Refresh</button>
+        <button id="btnTreeSync">Check Drive and clean up</button>
+        <button id="btnDelAllAudio" class="danger">Delete all audio exports</button>
+        <button id="btnDelAllVideo" class="danger">Delete all video exports</button>
+      </div>
+      <div id="tree" class="hint">Tap Refresh to load your jobs and exports.</div>
+      <p class="hint">Deleting moves files to the Drive trash. A YouTube video must be deleted in YouTube Studio; its link is listed here.</p>
+    </details>
+  </fieldset>
 
   <fieldset>
     <legend>Cloud runs</legend>
@@ -292,21 +347,37 @@ function renderFiles(rows) {
 }
 
 /* ------------------------------------------------------------- connections */
+const SET_IDS = ["aPrefix", "quality", "aPart", "vPrefix", "vTitle", "res", "vPart", "vmode"];
+const SET_CHECKS = ["ytOn", "driveCopy", "stampOn", "delSrc"];
+const SET_KEY = "logstudio.settings";
 function loadCfg() {
   $("#repo").value = cfg.repo || ""; $("#branch").value = cfg.branch || "main";
   $("#gid").value = cfg.gid || ""; $("#pat").value = cfg.pat || "";
-  if (!(cfg.repo && cfg.pat && cfg.gid)) $("#cfg").classList.add("open");
+  const st = JSON.parse(localStorage.getItem(SET_KEY) || "{}");
+  for (const id of SET_IDS) if (st[id] != null) $("#" + id).value = st[id];
+  for (const id of SET_CHECKS) if (st[id] != null) $("#" + id).checked = st[id];
+  if (!(cfg.repo && cfg.pat && cfg.gid)) $("#dlg").showModal();
 }
-$("#btnCfg").onclick = () => $("#cfg").classList.toggle("open");
+function saveSettings() {
+  const st = {};
+  for (const id of SET_IDS) st[id] = $("#" + id).value;
+  for (const id of SET_CHECKS) st[id] = $("#" + id).checked;
+  localStorage.setItem(SET_KEY, JSON.stringify(st));
+}
+$("#dlg").addEventListener("change", saveSettings);
+$("#dlg").addEventListener("input", e => { if (SET_IDS.includes(e.target.id)) saveSettings(); });
+$("#btnGear").onclick = () => $("#dlg").showModal();
+$("#btnDlgClose").onclick = () => { saveSettings(); $("#dlg").close(); };
+$("#dlg").addEventListener("click", e => { if (e.target === $("#dlg")) { saveSettings(); $("#dlg").close(); } });
 $("#saveCfg").onclick = () => {
   cfg = {repo: $("#repo").value.trim(), branch: $("#branch").value.trim() || "main",
          gid: $("#gid").value.trim(), pat: $("#pat").value.trim()};
   localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-  initGoogle(); loadRuns(); $("#cfg").classList.remove("open"); setStatus("Connections saved.", "good");
+  initGoogle(); loadRuns(); setStatus("Connections saved.", "good");
 };
 function needCfg() {
   if (cfg.repo && cfg.pat && cfg.gid) return true;
-  $("#cfg").classList.add("open"); setStatus("Fill in the connections first.", "err"); return false;
+  $("#dlg").showModal(); setStatus("Fill in the connections first.", "err"); return false;
 }
 
 /* ------------------------------------------------------------- Google Drive */
@@ -329,7 +400,11 @@ function getToken(prompt) {
     tokenClient.requestAccessToken({prompt});
   });
 }
-async function token() { if (!gToken || Date.now() > gExp - 300000) await getToken(""); return gToken; }
+async function token() {
+  if (!gToken) await getToken("select_account");
+  else if (Date.now() > gExp - 300000) await getToken("");
+  return gToken;
+}
 async function driveJson(path, init = {}) {
   const r = await fetch("https://www.googleapis.com/drive/v3/" + path, {...init,
     headers: {Authorization: "Bearer " + await token(), "Content-Type": "application/json", ...(init.headers || {})}});
@@ -350,10 +425,29 @@ async function createFolder(name, parent) {
   if (parent) body.parents = [parent];
   return (await driveJson("files?fields=id", {method: "POST", body: JSON.stringify(body)})).id;
 }
-async function ensureRoot() {
-  const q = `name='Log Studio uploads' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents`;
+const FOLDER = "application/vnd.google-apps.folder";
+async function findFolder(name, parent) {
+  const q = `name='${name}' and mimeType='${FOLDER}' and trashed=false and '${parent}' in parents`;
   const f = await driveJson("files?fields=files(id)&q=" + encodeURIComponent(q));
-  return f.files.length ? f.files[0].id : createFolder("Log Studio uploads", null);
+  return f.files.length ? f.files[0].id : null;
+}
+// Logger workspace/uploads (job folders) and Logger workspace/outputs are created automatically.
+let WS = null;
+async function ensureWorkspace() {
+  if (WS) return WS;
+  const ws = (await findFolder("Logger workspace", "root")) || await createFolder("Logger workspace", null);
+  let uploads = await findFolder("uploads", ws);
+  if (!uploads) {
+    const legacy = await findFolder("Log Studio uploads", "root");        // move an older layout inside
+    if (legacy) {
+      const cur = (await driveJson(`files/${legacy}?fields=parents`)).parents || [];
+      await driveJson(`files/${legacy}?addParents=${ws}&removeParents=${cur.join(",")}&fields=id`,
+                      {method: "PATCH", body: JSON.stringify({name: "uploads"})});
+      uploads = legacy;
+    } else uploads = await createFolder("uploads", ws);
+  }
+  WS = {ws, uploads};
+  return WS;
 }
 const CHUNK = 8 * 1024 * 1024;
 async function uploadFile(file, meta, onBytes) {
@@ -397,7 +491,12 @@ const gh = (path, init = {}) => fetch("https://api.github.com/repos/" + cfg.repo
   Authorization: "Bearer " + cfg.pat, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(init.headers || {})}});
 async function dispatch(inputs) {
   const r = await gh("/actions/workflows/log-studio.yml/dispatches", {method: "POST", body: JSON.stringify({ref: cfg.branch || "main", inputs})});
-  if (r.status !== 204) throw new Error("GitHub: " + (await r.text()).slice(0, 200));
+  if (r.status !== 204) {
+    const t = (await r.text()).slice(0, 200);
+    throw new Error(r.status === 404
+      ? "GitHub says Not Found. Check that the repo is typed as owner/name, the token can use that repo (Actions: read and write), and .github/workflows/log-studio.yml exists on branch " + (cfg.branch || "main") + "."
+      : "GitHub: " + t);
+  }
 }
 async function latestRun() {
   const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=1");
@@ -418,6 +517,7 @@ async function loadRuns() {
         <span class="st-${st}">${st.replace("_", " ")}</span></li>`;
     }).join("") : `<li class="hint">No runs yet.</li>`;
     if (runs.some(w => w.status !== "completed")) runsTimer = setTimeout(loadRuns, 20000);
+    else if (S.treeStale && gToken && Date.now() < gExp) { S.treeStale = false; loadTree(); }
   } catch (e) {
     $("#runs").innerHTML = `<li class="err">Could not load runs (${esc(e.message)}). Check the repository and token.</li>`;
   }
@@ -453,10 +553,10 @@ $("#btnUpload").onclick = async () => {
     await getToken("select_account");                    // must start inside the tap
     await keepAwake(true);
     setStatus("Preparing Drive folder…");
-    const root = await ensureRoot();
+    const {uploads} = await ensureWorkspace();
     const now = new Date();
     const jobName = `job-${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
-    const job = await createFolder(jobName, root);
+    const job = await createFolder(jobName, uploads);
     const total = S.items.reduce((s, i) => s + i.size, 0);
     let sent = 0;
     log(`Uploading ${S.items.length} file(s), ${human(total)}`);
@@ -474,7 +574,7 @@ $("#btnUpload").onclick = async () => {
     setStatus("Starting the cloud job…");
     const t0 = Date.now();
     await dispatch({action: "ingest", source_folder: job});
-    log("Cloud analysis started. You can close this page and come back with “Open earlier…”.");
+    log("Cloud analysis started. You can close this page and come back through “Audio tree”.");
     await keepAwake(false); guardUnload(false);
     await waitForIngest(job, t0);
   } catch (e) {
@@ -503,29 +603,8 @@ async function waitForIngest(job, t0) {
     } else setStatus("Waiting for the cloud job to start…");
     await wait(15000);
   }
-  setStatus("Cancelled. Use “Open earlier…” to continue later.");
+  setStatus("Cancelled. Use “Audio tree” to continue later.");
 }
-
-/* ------------------------------------------------------------- open earlier */
-$("#btnOpen").onclick = async () => {
-  if (S.busy || !needCfg()) return;
-  try {
-    await getToken("select_account");
-    const root = await ensureRoot();
-    const jobs = (await listFolder(root)).filter(f => f.mimeType === "application/vnd.google-apps.folder")
-      .sort((a, b) => b.name.localeCompare(a.name)).slice(0, 12);
-    if (!jobs.length) return setStatus("No earlier uploads found.");
-    const pick = prompt("Open which upload? Type its number:\n" + jobs.map((j, i) => `${i + 1}. ${j.name}`).join("\n"), "1");
-    const j = jobs[(parseInt(pick, 10) || 0) - 1];
-    if (!j) return;
-    S.busy = true; refreshButtons(); resetProject();
-    const kids = await listFolder(j.id);
-    if (!kids.some(f => f.name === "_meta.json")) throw new Error("That upload was never analysed (no waveform yet).");
-    S.jobId = j.id;
-    await loadProject(j.id, kids);
-  } catch (e) { setStatus(e.message || String(e), "err"); }
-  finally { S.busy = false; refreshButtons(); }
-};
 
 /* ------------------------------------------------------------- project load */
 function resetProject() {
@@ -557,7 +636,7 @@ async function loadProject(job, kids) {
   }));
   $("#folderLbl").textContent = `Project ${meta.files.length} file(s), ${fmtTime(S.dur, 0)}` +
     (meta.skipped?.length ? ` (${meta.skipped.length} skipped: could not be decoded)` : "");
-  S.ready = true; S.pos = 0;
+  S.jobId = job; S.ready = true; S.pos = 0;
   $("#slider").max = Math.max(1, Math.round(S.dur * 1000));
   $("#totalLbl").textContent = "/ " + fmtTime(S.dur);
   setPos(0); refreshButtons();
@@ -784,13 +863,17 @@ async function doExport(kind, whole) {
       action: "export", source_folder: S.jobId,
       segments: whole ? "" : JSON.stringify(S.segs.map(g => [g.a, g.b])),
       kind, prefix: ($(isVideo ? "#vPrefix" : "#aPrefix").value.trim() || (isVideo ? "visualizer" : "log")),
-      title: "", part_min: String(partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60),
+      title: isVideo ? $("#vTitle").value.trim() : "", part_min: String(partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60),
       quality: String(Math.min(10, Math.max(0, parseInt($("#quality").value, 10) || 10))),
       mode: $("#vmode").value, resolution: $("#res").value,
-      youtube: $("#ytOn").checked ? "true" : "false", delete_source: $("#delSrc").checked ? "true" : "false"
+      youtube: $("#ytOn").checked ? "true" : "false", drive_copy: $("#driveCopy").checked ? "true" : "false",
+      stamp: $("#stampOn").checked ? "true" : "false", delete_source: $("#delSrc").checked ? "true" : "false"
     };
+    if (isVideo && !inputs.youtube.includes("true") && inputs.drive_copy !== "true")
+      throw new Error("No upload target: turn on YouTube or the Drive copy in Settings.");
     const t0 = Date.now();
     await dispatch(inputs);
+    S.treeStale = true;
     log(`Export started in the cloud (${kind}${whole ? ", entire" : ", " + S.segs.length + " segment(s)"}).`);
     setStatus("Export started. You can close this page; GitHub will notify you when it finishes.", "good");
     setTimeout(async () => {
@@ -805,6 +888,144 @@ $("#btnAudio").onclick = () => doExport("audio", false);
 $("#btnAudioAll").onclick = () => doExport("audio", true);
 $("#btnVideo").onclick = () => doExport("video", false);
 $("#btnVideoAll").onclick = () => doExport("video", true);
+
+/* ------------------------------------------------------------- Audio tree (Logger workspace / _index.json) */
+async function readIndex() {
+  const {ws} = await ensureWorkspace();
+  const q = `name='_index.json' and '${ws}' in parents and trashed=false`;
+  const f = (await driveJson("files?fields=files(id,size)&q=" + encodeURIComponent(q))).files[0];
+  let data = {};
+  if (f) { try { data = JSON.parse(await (await driveDownload(f.id, +f.size)).text()); } catch (e) {} }
+  data.version = 1; data.jobs = data.jobs || {}; data.exports = data.exports || [];
+  return {data, id: f ? f.id : null, ws};
+}
+async function writeIndex(ws, data, id) {
+  data.updated = new Date().toISOString();
+  const body = JSON.stringify(data, null, 1), t = await token();
+  if (id) {
+    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
+      {method: "PATCH", headers: {Authorization: "Bearer " + t, "Content-Type": "application/json"}, body});
+    if (!r.ok) throw new Error("Could not save the Audio tree: " + (await r.text()).slice(0, 150));
+    return;
+  }
+  const b = "x" + Math.random().toString(36).slice(2);
+  const mp = `--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name: "_index.json", parents: [ws]})}\r\n` +
+             `--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+  const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+    {method: "POST", headers: {Authorization: "Bearer " + t, "Content-Type": "multipart/related; boundary=" + b}, body: mp});
+  if (!r.ok) throw new Error("Could not save the Audio tree: " + (await r.text()).slice(0, 150));
+}
+async function mutateIndex(fn) {                       // read, change, write back
+  const cur = await readIndex();
+  await fn(cur.data);
+  await writeIndex(cur.ws, cur.data, cur.id);
+  S.index = cur.data; renderTree();
+}
+async function alive(id) {
+  try { return !(await driveJson(`files/${id}?fields=id,trashed`)).trashed; }
+  catch (e) { if (String(e.message).includes("404")) return false; throw e; }
+}
+async function trashFile(id) {
+  try { await driveJson(`files/${id}`, {method: "PATCH", body: JSON.stringify({trashed: true})}); }
+  catch (e) { if (!String(e.message).includes("404")) throw e; }
+}
+
+async function loadTree() {
+  if (!needCfg()) return;
+  try {
+    $("#treeBox").open = true;
+    $("#tree").textContent = "Loading…";
+    S.index = (await readIndex()).data; renderTree();
+  } catch (e) { $("#tree").textContent = ""; setStatus(e.message || String(e), "err"); }
+}
+async function syncTree() {                            // prune what was deleted in Drive, add folders it doesn't know
+  if (!needCfg() || S.busy) return;
+  try {
+    setStatus("Checking Drive…");
+    const {uploads} = await ensureWorkspace();
+    await mutateIndex(async d => {
+      for (const id of Object.keys(d.jobs)) if (!(await alive(id))) delete d.jobs[id];
+      const keep = [];
+      for (const e of d.exports) if (!e.driveFileId || await alive(e.driveFileId)) keep.push(e);
+      d.exports = keep;
+      for (const f of (await listFolder(uploads)).filter(f => f.mimeType === FOLDER))
+        if (!d.jobs[f.id]) d.jobs[f.id] = {name: f.name, created: f.modifiedTime, driveUrl: `https://drive.google.com/drive/folders/${f.id}`};
+    });
+    setStatus("Audio tree is up to date.", "good");
+  } catch (e) { setStatus(e.message || String(e), "err"); }
+}
+
+function renderTree() {
+  const idx = S.index, box = $("#tree");
+  if (!idx) { box.textContent = "Tap Refresh to load your jobs and exports."; return; }
+  const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>` : "";
+  const ex = (e, showJob) => `<div class="ex"><span class="tag ${e.kind}">${e.kind === "audio" ? "Audio" : "Video"}</span>
+    <span class="et">${esc(e.title || "")}</span>
+    <span class="hint">${fmtDate(Date.parse(e.created))} · ${fmtTime(e.duration || 0, 0)}${showJob ? " · from " + esc(e.jobName || "?") : ""}</span>
+    <span class="links">${link(e.driveUrl, "Drive")}${link(e.youtubeUrl, "YouTube" + (e.privacy && e.privacy !== "unlisted" ? " (" + esc(e.privacy) + ")" : ""))}
+    <button class="danger" data-act="delex" data-id="${e.id}">Delete</button></span></div>`;
+  const byJob = {};
+  for (const e of idx.exports) (byJob[e.job] = byJob[e.job] || []).push(e);
+  const jobs = Object.entries(idx.jobs).sort((a, b) => (b[1].created || "").localeCompare(a[1].created || ""));
+  let html = jobs.map(([id, j]) => `<div class="job"><div class="jh"><b>${esc(j.name)}</b>
+      <span class="hint">${j.duration ? fmtTime(j.duration, 0) + " · " : ""}${j.files ? j.files + " files" : "not analysed yet"}</span>
+      <span class="links"><button data-act="open" data-id="${id}">Open</button>${link(j.driveUrl, "Drive")}
+      <button class="danger" data-act="deljob" data-id="${id}">Delete job</button></span></div>
+      ${(byJob[id] || []).map(e => ex(e, false)).join("") || '<div class="ex hint">No exports yet</div>'}</div>`).join("");
+  const orphans = idx.exports.filter(e => !idx.jobs[e.job]);
+  if (orphans.length) html += `<div class="job"><div class="jh"><b>From jobs no longer in Drive</b></div>${orphans.map(e => ex(e, true)).join("")}</div>`;
+  box.innerHTML = html || "Nothing here yet.";
+}
+
+async function openJob(id) {
+  if (S.busy) return;
+  try {
+    S.busy = true; refreshButtons(); resetProject();
+    const kids = await listFolder(id);
+    if (!kids.some(f => f.name === "_meta.json")) throw new Error("That job was never analysed (no waveform yet).");
+    await loadProject(id, kids);
+    $("#folderLbl").scrollIntoView({behavior: "smooth"});
+  } catch (e) { setStatus(e.message || String(e), "err"); }
+  finally { S.busy = false; refreshButtons(); }
+}
+async function deleteJob(id) {
+  const name = S.index?.jobs[id]?.name || "this job";
+  if (!confirm(`Move ${name} (its uploaded audio, background and waveform files) to the Drive trash? Its exports are kept.`)) return;
+  try {
+    if (S.jobId === id) { stopPlay(false); resetProject(); S.jobId = null; S.items = []; renderFiles([]); $("#folderLbl").textContent = "No files selected"; }
+    await trashFile(id);
+    await mutateIndex(d => { delete d.jobs[id]; });
+    log(`Deleted job ${name}.`); setStatus("Job deleted.", "good");
+  } catch (e) { setStatus(e.message || String(e), "err"); }
+  refreshButtons();
+}
+async function deleteExports(list, label) {
+  if (!list.length) return setStatus("Nothing to delete.");
+  const yt = list.filter(e => e.youtubeUrl).length;
+  if (!confirm(`Move ${label} (${list.length}) from Drive to the trash and remove them from the Audio tree?` +
+               (yt ? `\n\n${yt} also have a YouTube video. That stays on YouTube until you delete it in YouTube Studio.` : ""))) return;
+  try {
+    const ids = new Set(list.map(e => e.id));
+    for (const e of list) if (e.driveFileId) await trashFile(e.driveFileId);
+    await mutateIndex(d => { d.exports = d.exports.filter(e => !ids.has(e.id)); });
+    log(`Deleted ${list.length} export(s).`); setStatus("Deleted.", "good");
+  } catch (e) { setStatus(e.message || String(e), "err"); }
+}
+$("#btnOpen").onclick = () => { $("#treeBox").scrollIntoView({behavior: "smooth"}); loadTree(); };
+$("#btnTreeRefresh").onclick = loadTree;
+$("#btnTreeSync").onclick = syncTree;
+$("#btnDelAllAudio").onclick = () => S.index && deleteExports(S.index.exports.filter(e => e.kind === "audio"), "all audio exports");
+$("#btnDelAllVideo").onclick = () => S.index && deleteExports(S.index.exports.filter(e => e.kind === "video"), "all video exports");
+$("#tree").addEventListener("click", e => {
+  const b = e.target.closest("button[data-act]"); if (!b || !S.index) return;
+  const id = b.dataset.id;
+  if (b.dataset.act === "open") openJob(id);
+  else if (b.dataset.act === "deljob") deleteJob(id);
+  else if (b.dataset.act === "delex") {
+    const x = S.index.exports.find(v => v.id === id);
+    if (x) deleteExports([x], `"${x.title}"`);
+  }
+});
 
 /* ------------------------------------------------------------- start */
 loadCfg(); refreshButtons(); renderSegs(); requestDraw(); loadRuns();
