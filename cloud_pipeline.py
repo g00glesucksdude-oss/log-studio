@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """ADPCM Log Studio, cloud backend.
 
-  ingest : Drive job folder -> merge (oldest->newest) -> waveform data + small playable copy
-           + metadata, written back into the same Drive folder for the web GUI.
-  export : same folder + segment queue -> .ogg / .mp4 parts
-           -> (video) YouTube unlisted -> Drive output folder (public link).
+Drive layout (created automatically, in the Drive account):
+  Logger workspace/
+    uploads/<job>/   source audio, _background.*, _peaks.bin, _proxy.m4a, _meta.json
+    outputs/audio/   exported .ogg (public link)
+    outputs/video/   optional public copy of exported .mp4
+    _index.json      the Audio Tree: which job produced which export, with Drive/YouTube links
+
+  ingest : job folder -> merge (oldest->newest) -> waveform + small playable copy + metadata
+           -> record the job in the Audio Tree -> wipe runner temp files.
+  export : job folder + segment queue -> .ogg / .mp4 parts
+           -> video: YouTube (default) and optional public Drive copy; audio: Drive
+           -> record in the Audio Tree -> wipe runner temp files.
 
 Auth from env: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 GOOGLE_REFRESH_TOKEN (Drive account), YT_REFRESH_TOKEN (YouTube account, optional).
 """
 import argparse
+import io
 import json
 import os
 import re
@@ -18,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +45,8 @@ YT_MAX_PART = 11 * 3600                # YouTube's limit is 12 h
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
           "https://www.googleapis.com/auth/drive"]
 DERIVED = ("_peaks.bin", "_proxy.m4a", "_meta.json")
+FOLDER = "application/vnd.google-apps.folder"
+INDEX_NAME = "_index.json"
 
 
 def log(msg):
@@ -171,16 +183,101 @@ def youtube_upload(yt, path, title, description):
     return f"https://youtu.be/{resp['id']}", privacy
 
 
-def drive_upload(drive, path, folder_id, name, mime, public):
+def drive_upload(drive, path, folder_id, name, mime, public, description=""):
     from googleapiclient.http import MediaFileUpload
     media = MediaFileUpload(path, mimetype=mime, chunksize=UPLOAD_CHUNK, resumable=True)
-    req = drive.files().create(body={"name": name, "parents": [folder_id]}, media_body=media,
+    body = {"name": name, "parents": [folder_id]}
+    if description:
+        body["description"] = description
+    req = drive.files().create(body=body, media_body=media,
                                fields="id,webViewLink", supportsAllDrives=True)
     resp = resumable_upload(req, "Drive")
     if public:
         drive.permissions().create(fileId=resp["id"], body={"type": "anyone", "role": "reader"},
                                    supportsAllDrives=True).execute()
-    return resp["webViewLink"]
+    return resp["id"], resp["webViewLink"]
+
+
+# ------------------------------------------------------------------ workspace + Audio Tree
+def parents_of(drive, fid):
+    r = drive.files().get(fileId=fid, fields="id,parents", supportsAllDrives=True).execute()
+    return r.get("parents", [])
+
+
+def get_or_create_folder(drive, name, parent):
+    q = (f"name='{name}' and mimeType='{FOLDER}' and '{parent}' in parents and trashed=false")
+    r = drive.files().list(q=q, fields="files(id)", supportsAllDrives=True,
+                           includeItemsFromAllDrives=True).execute()
+    if r["files"]:
+        return r["files"][0]["id"]
+    return drive.files().create(body={"name": name, "mimeType": FOLDER, "parents": [parent]},
+                                fields="id", supportsAllDrives=True).execute()["id"]
+
+
+def workspace_of(drive, job_id):
+    """job -> uploads -> Logger workspace. Falls back to the job's parent for old layouts."""
+    up = parents_of(drive, job_id)
+    if not up:
+        sys.exit("Could not find the job folder's parent in Drive.")
+    gp = parents_of(drive, up[0])
+    return gp[0] if gp else up[0]
+
+
+def drive_exists(drive, fid):
+    from googleapiclient.errors import HttpError
+    try:
+        r = drive.files().get(fileId=fid, fields="id,trashed", supportsAllDrives=True).execute()
+        return not r.get("trashed")
+    except HttpError as e:
+        if e.resp.status == 404:
+            return False
+        raise
+
+
+def load_index(drive, ws):
+    r = drive.files().list(q=f"name='{INDEX_NAME}' and '{ws}' in parents and trashed=false",
+                           fields="files(id)", supportsAllDrives=True,
+                           includeItemsFromAllDrives=True).execute()
+    if r["files"]:
+        fid = r["files"][0]["id"]
+        try:
+            data = json.loads(drive.files().get_media(fileId=fid, supportsAllDrives=True).execute())
+        except Exception:
+            data = {}
+        data.setdefault("jobs", {})
+        data.setdefault("exports", [])
+        data["version"] = 1
+        return data, fid
+    return {"version": 1, "jobs": {}, "exports": []}, None
+
+
+def save_index(drive, ws, data, fid):
+    from googleapiclient.http import MediaIoBaseUpload
+    data["updated"] = datetime.now(timezone.utc).isoformat()
+    media = MediaIoBaseUpload(io.BytesIO(json.dumps(data, indent=1).encode()),
+                              mimetype="application/json", resumable=False)
+    if fid:
+        drive.files().update(fileId=fid, media_body=media, supportsAllDrives=True).execute()
+    else:
+        drive.files().create(body={"name": INDEX_NAME, "parents": [ws]}, media_body=media,
+                             fields="id", supportsAllDrives=True).execute()
+
+
+def prune_index(drive, data):
+    """Drop entries whose Drive job folder or export file was deleted or trashed."""
+    for jid in list(data["jobs"]):
+        if not drive_exists(drive, jid):
+            del data["jobs"][jid]
+    data["exports"] = [e for e in data["exports"]
+                       if not e.get("driveFileId") or drive_exists(drive, e["driveFileId"])]
+
+
+def update_index(drive, ws, mutate):
+    """Read, prune deleted entries, apply the change, write back."""
+    data, fid = load_index(drive, ws)
+    prune_index(drive, data)
+    mutate(data)
+    save_index(drive, ws, data, fid)
 
 
 # ------------------------------------------------------------------ audio
@@ -413,11 +510,23 @@ def cmd_ingest(a, drive):
     for name, mime in (("_peaks.bin", "application/octet-stream"),
                        ("_proxy.m4a", "audio/mp4"), ("_meta.json", "application/json")):
         drive_upload(drive, str(work / name), a.source_folder, name, mime, public=False)
+    jname = drive.files().get(fileId=a.source_folder, fields="name", supportsAllDrives=True).execute()["name"]
+    ws = workspace_of(drive, a.source_folder)
+
+    def add_job(d):
+        d["jobs"][a.source_folder] = {
+            "name": jname, "created": meta["made"], "duration": meta["duration"],
+            "files": len(meta["files"]),
+            "driveUrl": f"https://drive.google.com/drive/folders/{a.source_folder}"}
+    update_index(drive, ws, add_job)
     log("Ingest finished. The page can load the waveform now.")
 
 
 def cmd_export(a, drive, yt):
     work = Path(a.workdir)
+    kind = a.kind
+    if kind == "video" and not a.no_upload and not a.local_dir and a.no_youtube and not a.drive_copy:
+        sys.exit("No upload target selected: tick YouTube and/or the public Drive copy.")
     sources, fetch, all_files = gather(a, drive)
     if not sources:
         sys.exit("No audio files found.")
@@ -433,14 +542,13 @@ def cmd_export(a, drive, yt):
     log(f"Master: {fmt_time(total / rate)}")
 
     segs = []
-    for s, e in (json.loads(a.segments) if a.segments.strip() else [[0, total / rate]]):
-        f0, f1 = max(0, int(round(s * rate))), min(total, int(round(e * rate)))
+    for s_, e_ in (json.loads(a.segments) if a.segments.strip() else [[0, total / rate]]):
+        f0, f1 = max(0, int(round(s_ * rate))), min(total, int(round(e_ * rate)))
         if f1 > f0:
             segs.append((f0, f1))
     if not segs:
         sys.exit("The segment queue is empty.")
 
-    kind = a.kind
     part_sec = a.part_min * 60 if a.part_min > 0 else 0
     if kind == "video" and yt and (part_sec == 0 or part_sec > YT_MAX_PART):
         part_sec = YT_MAX_PART
@@ -450,41 +558,74 @@ def cmd_export(a, drive, yt):
     parts = split_parts(segs, part_frames)
     log(f"Export {kind}: {fmt_time(grand / rate)} in {len(parts)} part(s)")
 
+    # Drive layout + job info (not used in local test runs)
+    ws = out_folder = job_name = None
+    if drive and not a.no_upload:
+        ws = workspace_of(drive, a.source_folder)
+        out_root = get_or_create_folder(drive, "outputs", ws)
+        out_folder = get_or_create_folder(drive, "audio" if kind == "audio" else "video", out_root)
+        job_name = drive.files().get(fileId=a.source_folder, fields="name",
+                                     supportsAllDrives=True).execute()["name"]
+
+    now = datetime.now(timezone.utc)
+    stamp_h = now.strftime("%Y-%m-%d %H:%M UTC")
+    stamp_f = now.strftime("%Y-%m-%d_%H%M")
     ext = "ogg" if kind == "audio" else "mp4"
     opts = {"kind": kind, "mode": a.mode, "res": a.res, "bg": bg, "quality": a.quality}
     results, failed = [], False
     for i, ranges in enumerate(parts, 1):
         n = len(parts)
         label = a.prefix if n == 1 else f"{a.prefix}_part{i}"
-        out = str(work / f"{re.sub(r'[^A-Za-z0-9._-]+', '_', label)}.{ext}")
-        log(f"Rendering {label}: {fmt_time(sum(b - x for x, b in ranges) / rate)}")
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
+        out = str(work / f"{safe}.{ext}")
+        dur = sum(b - x for x, b in ranges) / rate
+        log(f"Rendering {label}: {fmt_time(dur)}")
         feed_ffmpeg(build_cmd(opts, rate, ch, out), master, ranges, ch, "render")
         log(f"Rendered {human_size(os.path.getsize(out))}")
         row = {"title": label, "youtube": None, "drive": None}
+        entry = {"id": uuid.uuid4().hex[:8], "job": a.source_folder, "jobName": job_name, "kind": kind,
+                 "created": now.isoformat(), "duration": dur}
+        desc = f"Duration {fmt_time(dur)}." + (f" Uploaded {stamp_h}." if a.stamp else "")
+        base_title = (a.title or a.prefix) + ("" if n == 1 else f" (part {i}/{n})")
+        suffix = f" ({stamp_h})" if a.stamp else ""
+        title = base_title[:100 - len(suffix)] + suffix
+        entry["title"] = title
         if not a.no_upload:
-            if kind == "video" and yt:
-                title = (a.title or a.prefix) + ("" if n == 1 else f" (part {i}/{n})")
+            if kind == "video" and yt and not a.no_youtube:            # default video target
                 try:
-                    row["youtube"], privacy = youtube_upload(
-                        yt, out, title, f"Duration {fmt_time(sum(b - x for x, b in ranges) / rate)}.")
+                    row["youtube"], privacy = youtube_upload(yt, out, title, desc)
                     row["privacy"] = privacy
+                    entry.update(youtubeUrl=row["youtube"], youtubeId=row["youtube"].rsplit("/", 1)[-1],
+                                 privacy=privacy)
                     log(f"YouTube: {row['youtube']} ({privacy})")
-                except Exception as ex:                  # keep going so the Drive copy isn't lost
+                except Exception as ex:                                # keep going so a Drive copy isn't lost
                     failed = True
                     log(f"YouTube upload FAILED: {ex}")
-            try:
-                row["drive"] = drive_upload(drive, out, a.output_folder, os.path.basename(out),
-                                            "video/mp4" if kind == "video" else "audio/ogg", public=True)
-                log(f"Drive: {row['drive']}")
-            except Exception as ex:
-                failed = True
-                log(f"Drive upload FAILED: {ex}")
+            if kind == "audio" or a.drive_copy:                        # audio always; video only if asked
+                try:
+                    dname = f"{safe}{'_' + stamp_f if a.stamp else ''}.{ext}"
+                    fid, link = drive_upload(drive, out, out_folder, dname,
+                                             "video/mp4" if kind == "video" else "audio/ogg",
+                                             public=True, description=desc)
+                    row["drive"] = link
+                    entry.update(driveFileId=fid, driveUrl=link, driveName=dname)
+                    log(f"Drive: {link}")
+                except Exception as ex:
+                    failed = True
+                    log(f"Drive upload FAILED: {ex}")
+            if row["youtube"] or row["drive"]:                         # index whatever succeeded
+                try:
+                    update_index(drive, ws, lambda d, e=entry: d["exports"].append(e))
+                    log("Audio Tree updated.")
+                except Exception as ex:
+                    log(f"WARNING: could not update the Audio Tree: {ex}")
             os.remove(out)
         results.append(row)
 
     if a.delete_source and not a.local_dir and not failed and not a.no_upload:
         drive.files().update(fileId=a.source_folder, body={"trashed": True},
                              supportsAllDrives=True).execute()
+        update_index(drive, ws, lambda d: None)                       # prune the deleted job
         log("Source folder moved to Drive trash.")
 
     lines = ["## Log Studio export finished", ""]
@@ -493,7 +634,7 @@ def cmd_export(a, drive, yt):
         if kind == "video":
             lines.append(f"- YouTube: {r['youtube'] or 'skipped / failed'}"
                          + (f" ({r.get('privacy')})" if r.get("privacy") else ""))
-        lines.append(f"- Drive: {r['drive'] or 'skipped / failed'}")
+        lines.append(f"- Drive: {r['drive'] or 'not requested / failed'}")
         lines.append("")
     text = "\n".join(lines)
     print(text)
@@ -519,6 +660,9 @@ def main():
     ap.add_argument("--mode", choices=["visualizer", "still"], default="visualizer")
     ap.add_argument("--res", default="1280x720")
     ap.add_argument("--no-youtube", action="store_true")
+    ap.add_argument("--drive-copy", action="store_true", help="video: also save a public copy in Drive")
+    ap.add_argument("--stamp", action="store_true", help="append the upload date/time to titles and descriptions")
+    ap.add_argument("--keep-work", action="store_true", help="(testing) keep the temp folder")
     ap.add_argument("--delete-source", action="store_true")
     ap.add_argument("--no-upload", action="store_true")
     ap.add_argument("--workdir", default=None)
@@ -528,13 +672,18 @@ def main():
     Path(a.workdir).mkdir(parents=True, exist_ok=True)
 
     drive = yt = None
-    if not a.local_dir:
-        drive, yt = build_services(need_youtube=(a.command == "export" and a.kind == "video"
-                                                 and not a.no_youtube and not a.no_upload))
-    if a.command == "ingest":
-        cmd_ingest(a, drive)
-    else:
-        cmd_export(a, drive, yt)
+    try:
+        if not a.local_dir:
+            drive, yt = build_services(need_youtube=(a.command == "export" and a.kind == "video"
+                                                     and not a.no_youtube and not a.no_upload))
+        if a.command == "ingest":
+            cmd_ingest(a, drive)
+        else:
+            cmd_export(a, drive, yt)
+    finally:
+        if not a.keep_work:                      # cleanup rule: nothing is left on the runner
+            shutil.rmtree(a.workdir, ignore_errors=True)
+            log("Temporary files removed.")
 
 
 if __name__ == "__main__":
