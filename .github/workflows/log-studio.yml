@@ -1,5 +1,7 @@
 name: Log Studio
 
+run-name: ${{ inputs.action == 'export' && format('export {0} part {1}/{2}', inputs.prefix, inputs.part_idx, inputs.part_total) || 'ingest' }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -62,6 +64,26 @@ on:
         description: "Export: trash the uploaded audio from Drive when finished"
         type: boolean
         default: false
+      ranged:
+        description: "Export: decode only the source files this export needs (set by the page when recommended)"
+        type: boolean
+        default: false
+      lite:
+        description: "Export: half-frame-rate visualizer (faster)"
+        type: boolean
+        default: false
+      group:
+        description: "Parallel export: id shared by all parts (set by the page)"
+        required: false
+        default: ""
+      part_idx:
+        description: "Parallel export: this part's number (set by the page)"
+        required: false
+        default: "0"
+      part_total:
+        description: "Parallel export: number of parts (set by the page)"
+        required: false
+        default: "1"
 
 jobs:
   run:
@@ -94,15 +116,25 @@ jobs:
           IN_COPY: ${{ inputs.drive_copy }}
           IN_STAMP: ${{ inputs.stamp }}
           IN_DEL: ${{ inputs.delete_source }}
+          IN_RANGED: ${{ inputs.ranged }}
+          IN_LITE: ${{ inputs.lite }}
+          IN_GROUP: ${{ inputs.group }}
+          IN_PIDX: ${{ inputs.part_idx }}
+          IN_PTOT: ${{ inputs.part_total }}
         run: |
           EXTRA=""
           if [ "$IN_YT" != "true" ]; then EXTRA="$EXTRA --no-youtube"; fi
           if [ "$IN_COPY" = "true" ]; then EXTRA="$EXTRA --drive-copy"; fi
           if [ "$IN_STAMP" = "true" ]; then EXTRA="$EXTRA --stamp"; fi
           if [ "$IN_DEL" = "true" ]; then EXTRA="$EXTRA --delete-source"; fi
+          if [ "$IN_RANGED" = "true" ]; then EXTRA="$EXTRA --ranged"; fi
+          if [ "$IN_LITE" = "true" ]; then EXTRA="$EXTRA --lite"; fi
           python cloud_pipeline.py "$IN_ACTION" $EXTRA \
             --source-folder "$IN_SRC" \
             --segments "$IN_SEGMENTS" \
+            --group "$IN_GROUP" \
+            --part-idx "$IN_PIDX" \
+            --part-total "$IN_PTOT" \
             --kind "${{ inputs.kind }}" \
             --prefix "$IN_PREFIX" \
             --title "$IN_TITLE" \
