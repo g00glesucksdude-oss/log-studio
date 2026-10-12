@@ -3,13 +3,16 @@
 
 Drive layout (created automatically, in the Drive account):
   Logger workspace/
-    uploads/<job>/   source audio, _background.*, _peaks.bin, _proxy.m4a, _meta.json
+    uploads/<job>/   source audio, _background.*, _peaks.bin, _proxy.m4a (or _proxy_NNN.m4a pieces),
+                     _meta.json
     outputs/audio/   exported .ogg (public link)
     outputs/video/   optional public copy of exported .mp4
-    _index.json      the Audio Tree: which job produced which export, with Drive/YouTube links
+    index/           the Audio Tree: one small file per job (job_*.json), export (exp_*.json) and
+                     parallel-export plan (plan_*.json), so parallel jobs never overwrite each other
+    _index.json      a combined copy of the index for other programs (rebuilt after every run)
 
-  ingest : job folder -> merge (oldest->newest) -> waveform + small playable copy + metadata
-           -> record the job in the Audio Tree -> wipe runner temp files.
+  ingest : job folder -> merge (oldest->newest) -> waveform + playable copy (split into 1-hour
+           pieces when >20 h) + metadata -> record the job in the Audio Tree -> wipe runner temp.
   export : job folder + segment queue -> .ogg / .mp4 parts
            -> video: YouTube (default) and optional public Drive copy; audio: Drive
            -> record in the Audio Tree -> wipe runner temp files.
@@ -34,6 +37,7 @@ from pathlib import Path
 AUDIO_EXTS = {".wav", ".wave", ".bwf", ".adpcm", ".au", ".aif", ".aiff", ".flac",
               ".mp3", ".ogg", ".opus", ".m4a", ".aac", ".wma"}
 FPS = 25
+LITE_FPS = 12                         # half-rate visualizer, about 2x faster
 STATIC_FPS = 2
 GIF_FPS = 15
 VIDEO_CRF = 26
@@ -44,7 +48,9 @@ PEAKS_PER_SEC = 200
 YT_MAX_PART = 11 * 3600                # YouTube's limit is 12 h
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
           "https://www.googleapis.com/auth/drive"]
-DERIVED = ("_peaks.bin", "_proxy.m4a", "_meta.json")
+DERIVED = ("_peaks.bin", "_proxy.m4a", "_meta.json")  # exact names; pieces are cleaned by prefix
+PROXY_HOUR = 3600          # seconds per playable piece
+PROXY_SPLIT_H = 20         # split into pieces when longer than this many hours
 FOLDER = "application/vnd.google-apps.folder"
 INDEX_NAME = "_index.json"
 
@@ -234,50 +240,100 @@ def drive_exists(drive, fid):
         raise
 
 
+def index_dir(drive, ws):
+    return get_or_create_folder(drive, "index", ws)
+
+
+def _children(drive, parent):
+    out, token = [], None
+    while True:
+        r = drive.files().list(q=f"'{parent}' in parents and trashed=false",
+                               fields="nextPageToken, files(id,name)", pageSize=1000, pageToken=token,
+                               supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+        out += r["files"]
+        token = r.get("nextPageToken")
+        if not token:
+            return out
+
+
+def _json_media(obj):
+    from googleapiclient.http import MediaIoBaseUpload
+    return MediaIoBaseUpload(io.BytesIO(json.dumps(obj, indent=1).encode()),
+                             mimetype="application/json", resumable=False)
+
+
+def put_entry(drive, ws, name, obj):
+    """Create or replace one small index file. Each run writes only its own file."""
+    d = index_dir(drive, ws)
+    existing = next((f["id"] for f in _children(drive, d) if f["name"] == name), None)
+    if existing:
+        drive.files().update(fileId=existing, media_body=_json_media(obj), supportsAllDrives=True).execute()
+    else:
+        drive.files().create(body={"name": name, "parents": [d]}, media_body=_json_media(obj),
+                             fields="id", supportsAllDrives=True).execute()
+
+
 def load_index(drive, ws):
+    """Returns {"jobs": {id: entry}, "exports": [entry], "plans": [entry], "files": {name: file_id}}."""
+    data = {"version": 1, "jobs": {}, "exports": [], "plans": [], "files": {}}
+    for f in _children(drive, index_dir(drive, ws)):
+        try:
+            obj = json.loads(drive.files().get_media(fileId=f["id"], supportsAllDrives=True).execute())
+        except Exception:
+            continue
+        data["files"][f["name"]] = f["id"]
+        if f["name"].startswith("job_"):
+            data["jobs"][obj.get("id") or f["name"][4:-5]] = obj
+        elif f["name"].startswith("exp_"):
+            data["exports"].append(obj)
+        elif f["name"].startswith("plan_"):
+            data["plans"].append(obj)
+    return data
+
+
+def prune_index(drive, ws, data):
+    """Remove entries whose Drive job folder or export file was deleted or trashed."""
+    dead = []
+    for jid in list(data["jobs"]):
+        if not drive_exists(drive, jid):
+            dead.append(f"job_{jid}.json")
+            del data["jobs"][jid]
+    keep = []
+    for e in data["exports"]:
+        if e.get("driveFileId") and not drive_exists(drive, e["driveFileId"]):
+            dead.append(f"exp_{e['id']}.json")
+        else:
+            keep.append(e)
+    data["exports"] = keep
+    for name in dead:
+        fid = data["files"].pop(name, None)
+        if fid:
+            drive.files().delete(fileId=fid, supportsAllDrives=True).execute()
+
+
+def compile_snapshot(drive, ws, data):
+    """Combined _index.json for other programs. Derived data: rebuilt whenever a run finishes."""
+    from googleapiclient.http import MediaIoBaseUpload
+    snap = {"version": 1, "updated": datetime.now(timezone.utc).isoformat(),
+            "jobs": data["jobs"], "exports": data["exports"]}
+    media = _json_media(snap)
     r = drive.files().list(q=f"name='{INDEX_NAME}' and '{ws}' in parents and trashed=false",
                            fields="files(id)", supportsAllDrives=True,
                            includeItemsFromAllDrives=True).execute()
     if r["files"]:
-        fid = r["files"][0]["id"]
-        try:
-            data = json.loads(drive.files().get_media(fileId=fid, supportsAllDrives=True).execute())
-        except Exception:
-            data = {}
-        data.setdefault("jobs", {})
-        data.setdefault("exports", [])
-        data["version"] = 1
-        return data, fid
-    return {"version": 1, "jobs": {}, "exports": []}, None
-
-
-def save_index(drive, ws, data, fid):
-    from googleapiclient.http import MediaIoBaseUpload
-    data["updated"] = datetime.now(timezone.utc).isoformat()
-    media = MediaIoBaseUpload(io.BytesIO(json.dumps(data, indent=1).encode()),
-                              mimetype="application/json", resumable=False)
-    if fid:
-        drive.files().update(fileId=fid, media_body=media, supportsAllDrives=True).execute()
+        drive.files().update(fileId=r["files"][0]["id"], media_body=media, supportsAllDrives=True).execute()
     else:
         drive.files().create(body={"name": INDEX_NAME, "parents": [ws]}, media_body=media,
                              fields="id", supportsAllDrives=True).execute()
 
 
-def prune_index(drive, data):
-    """Drop entries whose Drive job folder or export file was deleted or trashed."""
-    for jid in list(data["jobs"]):
-        if not drive_exists(drive, jid):
-            del data["jobs"][jid]
-    data["exports"] = [e for e in data["exports"]
-                       if not e.get("driveFileId") or drive_exists(drive, e["driveFileId"])]
-
-
-def update_index(drive, ws, mutate):
-    """Read, prune deleted entries, apply the change, write back."""
-    data, fid = load_index(drive, ws)
-    prune_index(drive, data)
-    mutate(data)
-    save_index(drive, ws, data, fid)
+def refresh_index(drive, ws, extra=None):
+    """After a run: add this run's entry, drop dead entries, rebuild the combined copy."""
+    if extra:
+        put_entry(drive, ws, extra[0], extra[1])
+    data = load_index(drive, ws)
+    prune_index(drive, ws, data)
+    compile_snapshot(drive, ws, data)
 
 
 # ------------------------------------------------------------------ audio
@@ -325,9 +381,9 @@ def decode_append(src, out, rate, ch):
     return (got - extra) // fb
 
 
-def build_master(sources, master_path, fetch):
-    """sources: [(name, handle)]. Returns rate, ch, total_frames, [(name, start_frame)], [skipped]."""
-    rate = ch = None
+def build_master(sources, master_path, fetch, rate=None, ch=None):
+    """sources: [(name, handle)]. Returns rate, ch, total_frames, [(name, start_frame)], [skipped].
+    Pass rate/ch to force the format used by an earlier ingest."""
     boundaries, skipped = [], []
     work = Path(master_path).parent
     with open(master_path, "wb") as out:
@@ -377,12 +433,40 @@ def write_peaks(master, rate, ch, total, out_path):
 
 
 def write_proxy(master, rate, ch, total, out_path):
-    """Small mono AAC copy the browser can play."""
+    """Small mono AAC copy the browser can play (single file)."""
     prate = min(rate, 22050)
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(rate),
            "-ac", str(ch), "-i", "pipe:0", "-ac", "1", "-ar", str(prate),
            "-c:a", "aac", "-b:a", "24k", "-movflags", "+faststart", out_path]
     feed_ffmpeg(cmd, master, [(0, total)], ch)
+
+
+def write_proxy_pieces(master, rate, ch, total, work):
+    """Write 1-hour AAC pieces when the log is long; otherwise a single _proxy.m4a.
+    Returns list of dicts for _meta.json: [{"name", "start", "dur"}, ...]."""
+    dur = total / rate
+    if dur <= PROXY_SPLIT_H * 3600:
+        path = work / "_proxy.m4a"
+        write_proxy(master, rate, ch, total, str(path))
+        return [{"name": "_proxy.m4a", "start": 0.0, "dur": dur}]
+
+    pieces = []
+    hour_frames = int(PROXY_HOUR * rate)
+    idx = 0
+    start = 0
+    while start < total:
+        end = min(start + hour_frames, total)
+        name = f"_proxy_{idx:03d}.m4a"
+        path = work / name
+        prate = min(rate, 22050)
+        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(rate),
+               "-ac", str(ch), "-i", "pipe:0", "-ac", "1", "-ar", str(prate),
+               "-c:a", "aac", "-b:a", "24k", "-movflags", "+faststart", str(path)]
+        feed_ffmpeg(cmd, master, [(start, end)], ch, label=f"proxy {idx}")
+        pieces.append({"name": name, "start": start / rate, "dur": (end - start) / rate})
+        start = end
+        idx += 1
+    return pieces
 
 
 def feed_ffmpeg(cmd, master, ranges, ch, label="encode"):
@@ -447,18 +531,19 @@ def build_cmd(opts, rate, ch, out):
                               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-r", str(fps)]
                 + ([] if is_gif else ["-tune", "stillimage"])
                 + ["-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out])
+    fps = LITE_FPS if opts.get("lite") else FPS
     colors = "|".join(WAVE_COLORS[i % len(WAVE_COLORS)] for i in range(ch))
     if is_gif:
         bg_in = ["-stream_loop", "-1", "-i", bg]
     elif bg:
-        bg_in = ["-loop", "1", "-framerate", str(FPS), "-i", bg]
+        bg_in = ["-loop", "1", "-framerate", str(fps), "-i", bg]
     else:
-        bg_in = ["-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={FPS}"]
-    fc = (f"[0:a]showwaves=s={W}x{H}:mode=cline:rate={FPS}:colors={colors},format=rgba[wv];"
+        bg_in = ["-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={fps}"]
+    fc = (f"[0:a]showwaves=s={W}x{H}:mode=cline:rate={fps}:colors={colors},format=rgba[wv];"
           f"[1:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,format=rgba[bg];"
           f"[bg][wv]overlay=shortest=1:format=auto,format=yuv420p[v]")
     return base + bg_in + ["-filter_complex", fc, "-map", "[v]", "-map", "0:a",
-                           "-c:v", "libx264", "-preset", "veryfast", "-crf", str(VIDEO_CRF), "-r", str(FPS),
+                           "-c:v", "libx264", "-preset", "veryfast", "-crf", str(VIDEO_CRF), "-r", str(fps),
                            "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out]
 
 
@@ -474,6 +559,30 @@ def gather(a, drive):
     files = sorted(audio_files(all_files), key=lambda f: natural_key(f["name"]))
     return ([(f["name"], f["id"]) for f in files],
             (lambda h, dest: (download(drive, h, str(dest)), dest)[1]), all_files)
+
+
+def select_ranged(sources, meta, segs_sec):
+    """Pick only the source files that overlap the segments, using the ingest metadata.
+    Returns (selected_sources, offset_frames) or None when the files don't match the metadata."""
+    skipped = list(meta.get("skipped", []))
+    mf, rate, chosen, k = meta["files"], meta["rate"], [], 0
+    for src in sources:
+        disp = display_name(src[0])
+        if k < len(mf) and mf[k]["name"] == disp:
+            end = mf[k + 1]["start"] if k + 1 < len(mf) else meta["duration"]
+            chosen.append((src, mf[k]["start"], end))
+            k += 1
+        elif disp in skipped:
+            skipped.remove(disp)
+        else:
+            return None
+    if k != len(mf):
+        return None
+    lo, hi = min(s for s, _ in segs_sec), max(e for _, e in segs_sec)
+    sel = [c for c in chosen if c[2] > lo and c[1] < hi]
+    if not sel:
+        return None
+    return [c[0] for c in sel], int(round(sel[0][1] * rate))
 
 
 def display_name(name):
@@ -494,31 +603,35 @@ def cmd_ingest(a, drive):
     log("Computing waveform")
     bin_f, nbins = write_peaks(master, rate, ch, total, str(work / "_peaks.bin"))
     log("Encoding playable copy")
-    write_proxy(master, rate, ch, total, str(work / "_proxy.m4a"))
-    meta = {"version": 1, "rate": rate, "channels": ch, "frames": total, "duration": total / rate,
+    proxy_pieces = write_proxy_pieces(master, rate, ch, total, work)
+    meta = {"version": 2, "rate": rate, "channels": ch, "frames": total, "duration": total / rate,
             "bin_frames": bin_f, "bins": nbins,
             "files": [{"name": display_name(n), "start": s / rate} for n, s in bounds],
             "skipped": [display_name(n) for n in skipped],
+            "proxy": proxy_pieces,
             "made": datetime.now(timezone.utc).isoformat()}
     (work / "_meta.json").write_text(json.dumps(meta))
     if a.local_dir:
         log(f"Local run: results are in {work}")
         return
     for f in all_files:                                  # replace results of an earlier ingest
-        if f["name"] in DERIVED:
+        n = f["name"]
+        if n in DERIVED or n.startswith("_proxy_"):
             drive.files().delete(fileId=f["id"], supportsAllDrives=True).execute()
-    for name, mime in (("_peaks.bin", "application/octet-stream"),
-                       ("_proxy.m4a", "audio/mp4"), ("_meta.json", "application/json")):
-        drive_upload(drive, str(work / name), a.source_folder, name, mime, public=False)
+    drive_upload(drive, str(work / "_peaks.bin"), a.source_folder, "_peaks.bin",
+                 "application/octet-stream", public=False)
+    for p in proxy_pieces:
+        drive_upload(drive, str(work / p["name"]), a.source_folder, p["name"],
+                     "audio/mp4", public=False)
+    drive_upload(drive, str(work / "_meta.json"), a.source_folder, "_meta.json",
+                 "application/json", public=False)
     jname = drive.files().get(fileId=a.source_folder, fields="name", supportsAllDrives=True).execute()["name"]
     ws = workspace_of(drive, a.source_folder)
 
-    def add_job(d):
-        d["jobs"][a.source_folder] = {
-            "name": jname, "created": meta["made"], "duration": meta["duration"],
-            "files": len(meta["files"]),
-            "driveUrl": f"https://drive.google.com/drive/folders/{a.source_folder}"}
-    update_index(drive, ws, add_job)
+    refresh_index(drive, ws, (f"job_{a.source_folder}.json", {
+        "id": a.source_folder, "name": jname, "created": meta["made"], "duration": meta["duration"],
+        "files": len(meta["files"]), "rate": rate, "channels": ch,
+        "driveUrl": f"https://drive.google.com/drive/folders/{a.source_folder}"}))
     log("Ingest finished. The page can load the waveform now.")
 
 
@@ -536,14 +649,33 @@ def cmd_export(a, drive, yt):
         bg = str(work / ("background" + Path(bgf["name"]).suffix))
         download(drive, bgf["id"], bg)
     master = str(work / "master.pcm")
-    rate, ch, total, bounds, _ = build_master(sources, master, fetch)
+    seg_list = json.loads(a.segments) if a.segments.strip() else None
+    offset, forced = 0, {}
+    if a.ranged and seg_list:                       # decode only the files this part needs
+        try:
+            if a.meta:
+                meta = json.loads(Path(a.meta).read_text())
+            else:
+                mf = next(f for f in all_files if f["name"] == "_meta.json")
+                meta = json.loads(drive.files().get_media(fileId=mf["id"], supportsAllDrives=True).execute())
+            picked = select_ranged(sources, meta, seg_list)
+            if picked:
+                sources, offset = picked[0], picked[1]
+                forced = {"rate": meta["rate"], "ch": meta["channels"]}
+                log(f"Range-aware decode: {len(sources)} source file(s) for this part")
+            else:
+                log("Range-aware decode skipped (files don't match the analysis); decoding everything.")
+        except Exception as ex:
+            log(f"Range-aware decode skipped ({ex}); decoding everything.")
+    rate, ch, total, bounds, _ = build_master(sources, master, fetch, **forced)
     if total == 0:
         sys.exit("Nothing could be decoded.")
-    log(f"Master: {fmt_time(total / rate)}")
+    log(f"Master: {fmt_time(total / rate)}" + (" (partial)" if offset else ""))
 
     segs = []
-    for s_, e_ in (json.loads(a.segments) if a.segments.strip() else [[0, total / rate]]):
-        f0, f1 = max(0, int(round(s_ * rate))), min(total, int(round(e_ * rate)))
+    for s_, e_ in (seg_list if seg_list is not None else [[0, total / rate]]):
+        f0 = max(0, int(round(s_ * rate)) - offset)
+        f1 = min(total, int(round(e_ * rate)) - offset)
         if f1 > f0:
             segs.append((f0, f1))
     if not segs:
@@ -571,11 +703,12 @@ def cmd_export(a, drive, yt):
     stamp_h = now.strftime("%Y-%m-%d %H:%M UTC")
     stamp_f = now.strftime("%Y-%m-%d_%H%M")
     ext = "ogg" if kind == "audio" else "mp4"
-    opts = {"kind": kind, "mode": a.mode, "res": a.res, "bg": bg, "quality": a.quality}
+    opts = {"kind": kind, "mode": a.mode, "res": a.res, "bg": bg, "quality": a.quality, "lite": a.lite}
     results, failed = [], False
     for i, ranges in enumerate(parts, 1):
         n = len(parts)
-        label = a.prefix if n == 1 else f"{a.prefix}_part{i}"
+        pi, pn = (a.part_idx, a.part_total) if a.part_total > 1 else (i, n)   # parallel run vs one job
+        label = a.prefix if pn == 1 else f"{a.prefix}_part{pi}"
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
         out = str(work / f"{safe}.{ext}")
         dur = sum(b - x for x, b in ranges) / rate
@@ -585,8 +718,10 @@ def cmd_export(a, drive, yt):
         row = {"title": label, "youtube": None, "drive": None}
         entry = {"id": uuid.uuid4().hex[:8], "job": a.source_folder, "jobName": job_name, "kind": kind,
                  "created": now.isoformat(), "duration": dur}
+        if a.group:
+            entry.update(group=a.group, part=pi, partTotal=pn)
         desc = f"Duration {fmt_time(dur)}." + (f" Uploaded {stamp_h}." if a.stamp else "")
-        base_title = (a.title or a.prefix) + ("" if n == 1 else f" (part {i}/{n})")
+        base_title = (a.title or a.prefix) + ("" if pn == 1 else f" (part {pi}/{pn})")
         suffix = f" ({stamp_h})" if a.stamp else ""
         title = base_title[:100 - len(suffix)] + suffix
         entry["title"] = title
@@ -615,7 +750,7 @@ def cmd_export(a, drive, yt):
                     log(f"Drive upload FAILED: {ex}")
             if row["youtube"] or row["drive"]:                         # index whatever succeeded
                 try:
-                    update_index(drive, ws, lambda d, e=entry: d["exports"].append(e))
+                    refresh_index(drive, ws, (f"exp_{entry['id']}.json", entry))
                     log("Audio Tree updated.")
                 except Exception as ex:
                     log(f"WARNING: could not update the Audio Tree: {ex}")
@@ -625,7 +760,7 @@ def cmd_export(a, drive, yt):
     if a.delete_source and not a.local_dir and not failed and not a.no_upload:
         drive.files().update(fileId=a.source_folder, body={"trashed": True},
                              supportsAllDrives=True).execute()
-        update_index(drive, ws, lambda d: None)                       # prune the deleted job
+        refresh_index(drive, ws)                                      # prune the deleted job
         log("Source folder moved to Drive trash.")
 
     lines = ["## Log Studio export finished", ""]
@@ -663,6 +798,12 @@ def main():
     ap.add_argument("--drive-copy", action="store_true", help="video: also save a public copy in Drive")
     ap.add_argument("--stamp", action="store_true", help="append the upload date/time to titles and descriptions")
     ap.add_argument("--keep-work", action="store_true", help="(testing) keep the temp folder")
+    ap.add_argument("--ranged", action="store_true", help="decode only the source files this export needs")
+    ap.add_argument("--lite", action="store_true", help="half-frame-rate visualizer (faster)")
+    ap.add_argument("--group", default="", help="id shared by the parallel parts of one export")
+    ap.add_argument("--part-idx", type=int, default=0)
+    ap.add_argument("--part-total", type=int, default=1)
+    ap.add_argument("--meta", default=None, help="(testing) path to a _meta.json for local ranged runs")
     ap.add_argument("--delete-source", action="store_true")
     ap.add_argument("--no-upload", action="store_true")
     ap.add_argument("--workdir", default=None)

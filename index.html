@@ -76,6 +76,8 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
 .tag{font-size:.75rem;padding:1px 7px;border-radius:10px;border:1px solid var(--line)}
 .tag.audio{color:var(--seg)} .tag.video{color:var(--wave)}
 .et{overflow-wrap:anywhere}
+#planBtns button{white-space:normal;text-align:left;line-height:1.3;padding:10px 12px}
+#planDlg{width:min(520px,94vw)}
 .check{display:flex;gap:8px;align-items:center;color:var(--text)!important}
 .check input{width:18px;height:18px}
 </style>
@@ -102,6 +104,12 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
     <button id="btnCancel" disabled>Cancel</button>
   </div>
   <div id="folderLbl" class="hint">No files selected</div>
+
+  <dialog id="planDlg">
+    <div class="dlghead"><h2>This export may hit a limit</h2></div>
+    <div id="planBody"></div>
+    <div id="planBtns" class="row" style="flex-direction:column;align-items:stretch"></div>
+  </dialog>
 
   <dialog id="dlg">
     <div class="dlghead"><h2>Settings</h2><button id="btnDlgClose">Done</button></div>
@@ -130,6 +138,8 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
       <div class="row"><label class="lbl" for="res">Resolution</label>
         <select id="res"><option>1280x720</option><option>1920x1080</option><option>854x480</option></select></div>
       <div class="row"><label class="lbl" for="vPart">Part length (min)</label><input id="vPart" type="text" inputmode="numeric" value="600" class="small"></div>
+      <div class="row"><label class="lbl" for="vfps">Visualizer frame rate</label>
+        <select id="vfps"><option value="normal">Normal (25 fps)</option><option value="lite">Lite (12 fps, about 2x faster)</option></select></div>
       <div class="row"><label class="lbl" for="vmode">Video look</label>
         <select id="vmode"><option value="visualizer">Animated visualizer</option><option value="still">Image / GIF only (fast)</option></select></div>
       <div class="row">
@@ -239,6 +249,9 @@ const S = {
   pos: 0, startT: null, endT: null, segs: [], selSegs: new Set(),
   ready: false, busy: false, cancel: false, bgFile: null,
   audio: null, proxyReady: false, playing: false, playTimer: null,
+  proxyPieces: [],          // [{name, start, dur}, ...] from meta (or synthesized)
+  loadedPieces: new Map(),  // idx -> {audio, url, start, end}
+  activeIdx: -1,
   zoomWin: [0, 0], lastRecenter: 0, ovCache: null
 };
 
@@ -347,7 +360,7 @@ function renderFiles(rows) {
 }
 
 /* ------------------------------------------------------------- connections */
-const SET_IDS = ["aPrefix", "quality", "aPart", "vPrefix", "vTitle", "res", "vPart", "vmode"];
+const SET_IDS = ["aPrefix", "quality", "aPart", "vPrefix", "vTitle", "res", "vPart", "vmode", "vfps"];
 const SET_CHECKS = ["ytOn", "driveCopy", "stampOn", "delSrc"];
 const SET_KEY = "logstudio.settings";
 function loadCfg() {
@@ -508,7 +521,7 @@ async function loadRuns() {
   clearTimeout(runsTimer);
   if (!cfg.repo || !cfg.pat) return;
   try {
-    const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=5");
+    const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=10");
     if (!r.ok) throw new Error("HTTP " + r.status);
     const runs = (await r.json()).workflow_runs;
     $("#runs").innerHTML = runs.length ? runs.map(w => {
@@ -611,11 +624,21 @@ function resetProject() {
   stopPlay(false);
   S.ready = false; S.meta = null; S.peaks = null; S.proxyReady = false; S.segs = []; S.selSegs.clear();
   S.startT = S.endT = null; S.pos = 0; S.ovCache = null;
-  if (S.audio) { URL.revokeObjectURL(S.audio.src); S.audio = null; }
+  clearAllPieces();
+  S.proxyPieces = []; S.activeIdx = -1;
   $("#startLbl").textContent = "Start: —"; $("#endLbl").textContent = "End: —";
   renderSegs(); requestDraw();
 }
+function clearAllPieces() {
+  for (const p of S.loadedPieces.values()) {
+    try { p.audio.pause(); } catch (e) {}
+    URL.revokeObjectURL(p.url);
+  }
+  S.loadedPieces.clear();
+  S.audio = null;
+}
 async function loadProject(job, kids) {
+  S._lastKids = kids; S._lastKidsJob = job;
   const by = n => kids.find(f => f.name === n);
   setStatus("Loading waveform…");
   const meta = JSON.parse(await (await driveDownload(by("_meta.json").id, 0)).text());
@@ -628,6 +651,20 @@ async function loadProject(job, kids) {
   // files table from Drive (timestamps survive the upload) + start offsets from the analysis
   const src = kids.filter(f => !f.name.startsWith("_") && !f.mimeType.startsWith("application/vnd.google-apps"))
     .sort((a, b) => natCmp(a.name, b.name));
+  S.srcBytes = src.reduce((t, f) => t + (+f.size || 0), 0);
+  // Build proxy piece list (new jobs have meta.proxy; old jobs have a single _proxy.m4a)
+  if (Array.isArray(meta.proxy) && meta.proxy.length) {
+    S.proxyPieces = meta.proxy.map(p => ({name: p.name, start: +p.start, dur: +p.dur}));
+  } else {
+    const single = by("_proxy.m4a");
+    S.proxyPieces = single ? [{name: "_proxy.m4a", start: 0, dur: S.dur}] : [];
+  }
+  const nPieces = S.proxyPieces.length;
+  if (nPieces > 1) {
+    log(`Long log (${fmtTime(S.dur, 0)}): playback will load 1-hour pieces on demand (~11 MB each).`);
+  } else if (S.dur / 3600 * 11 > LIM.proxyMB) {
+    log("Note: this is a very long log. Playback loads about " + Math.round(S.dur / 3600 * 11) + " MB into the browser and may be slow on a phone.");
+  }
   let k = 0;
   renderFiles(src.map(f => {
     const name = f.appProperties?.origName || f.name.replace(/^\d{4}_/, "");
@@ -642,12 +679,9 @@ async function loadProject(job, kids) {
   setPos(0); refreshButtons();
   log(`Waveform ready: ${fmtTime(S.dur)}`);
   setStatus("Loading audio for playback…");
-  const px = by("_proxy.m4a");
   try {
-    const blob = await driveDownload(px.id, +px.size, (g, t) => { setProgress(g / (t || g)); setStatus(`Loading audio… ${Math.round(g / (t || g) * 100)}%`); });
-    S.audio = new Audio(URL.createObjectURL(new Blob([blob], {type: "audio/mp4"})));
-    S.audio.preload = "auto";
-    S.audio.onended = () => stopPlay(true, true);
+    await ensurePiece(0);
+    if (nPieces > 1) ensurePiece(1).catch(() => {});  // pre-fetch next
     S.proxyReady = true;
   } catch (e) { log("Playback unavailable: " + e.message); }
   setProgress(0); setStatus("Master ready"); refreshButtons();
@@ -733,12 +767,27 @@ window.addEventListener("resize", () => { S.ovCache = null; requestDraw(); });
 function setPos(t, opts = {}) {
   if (!S.ready) return;
   t = Math.min(Math.max(0, +t), S.dur); S.pos = t;
-  if (S.playing && !opts.fromPlay && S.audio) S.audio.currentTime = t;
+  if (S.proxyPieces.length) {
+    const idx = pieceIndex(t);
+    const p = S.proxyPieces[idx];
+    const local = t - p.start;
+    if (S.playing && !opts.fromPlay) {
+      // User seeked while playing – switch piece if necessary
+      if (idx !== S.activeIdx) {
+        activatePiece(idx, local, true).catch(e => log("Seek error: " + e.message));
+      } else if (S.audio) {
+        S.audio.currentTime = local;
+      }
+    } else if (!opts.fromPlay && S.audio && idx === S.activeIdx) {
+      S.audio.currentTime = local;
+    }
+    // When not playing, just remember the position; the piece is loaded on next Play
+  }
   if (!opts.fromSlider) $("#slider").value = Math.round(t * 1000);
   if (!(opts.fromPlay && document.activeElement === $("#timeIn"))) $("#timeIn").value = fmtTime(t);
   const [w0, w1] = S.zoomWin, W = w1 - w0;
   if (!opts.fromPlay) recenter();
-  else if (W > 0 && W < S.dur) {                          // keep the zoom view following the playhead
+  else if (W > 0 && W < S.dur) {
     const need = t < w0 || t > w1 || (t > w1 - 0.1 * W && w1 < S.dur - 1e-3);
     if (need && performance.now() - S.lastRecenter > 400) recenter();
   }
@@ -766,24 +815,112 @@ function bindCanvas(c, toTime) {
 bindCanvas($("#cOv"), f => f * S.dur);
 bindCanvas($("#cZm"), f => S.zoomWin[0] + f * (S.zoomWin[1] - S.zoomWin[0]));
 
+/* ------------------------------------------------------------- multi-piece proxy playback */
+function pieceIndex(t) {
+  const ps = S.proxyPieces;
+  if (!ps.length) return -1;
+  for (let i = 0; i < ps.length; i++) {
+    if (t < ps[i].start + ps[i].dur - 1e-4) return i;
+  }
+  return ps.length - 1;
+}
+async function ensurePiece(idx) {
+  if (idx < 0 || idx >= S.proxyPieces.length) throw new Error("No proxy piece " + idx);
+  if (S.loadedPieces.has(idx)) return S.loadedPieces.get(idx);
+  const p = S.proxyPieces[idx];
+  if (!S._lastKids || S._lastKidsJob !== S.jobId) {
+    S._lastKids = await listFolder(S.jobId);
+    S._lastKidsJob = S.jobId;
+  }
+  const f = S._lastKids.find(x => x.name === p.name);
+  if (!f) throw new Error("Missing " + p.name);
+  setStatus(`Loading audio piece ${idx + 1}/${S.proxyPieces.length}…`);
+  const blob = await driveDownload(f.id, +f.size, (g, t) => {
+    setProgress(g / (t || g));
+    setStatus(`Loading audio piece ${idx + 1}/${S.proxyPieces.length}… ${Math.round(g / (t || g) * 100)}%`);
+  });
+  const url = URL.createObjectURL(new Blob([blob], {type: "audio/mp4"}));
+  const audio = new Audio(url);
+  audio.preload = "auto";
+  await new Promise((res, rej) => {
+    audio.addEventListener("loadedmetadata", res, {once: true});
+    audio.addEventListener("error", () => rej(new Error("Failed to decode " + p.name)), {once: true});
+  });
+  const entry = {audio, url, start: p.start, end: p.start + p.dur, idx};
+  S.loadedPieces.set(idx, entry);
+  prunePieces(idx);
+  return entry;
+}
+function prunePieces(keepAround) {
+  const keep = new Set([keepAround, keepAround - 1, keepAround + 1].filter(i => i >= 0));
+  for (const [i, e] of [...S.loadedPieces]) {
+    if (!keep.has(i)) {
+      try { e.audio.pause(); } catch (err) {}
+      URL.revokeObjectURL(e.url);
+      S.loadedPieces.delete(i);
+    }
+  }
+}
+async function activatePiece(idx, localTime, play) {
+  const entry = await ensurePiece(idx);
+  if (idx + 1 < S.proxyPieces.length) ensurePiece(idx + 1).catch(() => {});
+  if (idx - 1 >= 0) ensurePiece(idx - 1).catch(() => {});
+  if (S.audio && S.audio !== entry.audio) {
+    try { S.audio.pause(); } catch (e) {}
+  }
+  S.audio = entry.audio;
+  S.activeIdx = idx;
+  S.audio.onended = () => {
+    const next = idx + 1;
+    if (next < S.proxyPieces.length) {
+      activatePiece(next, 0, true).catch(e => { log("Next piece failed: " + e.message); stopPlay(true, true); });
+    } else {
+      stopPlay(true, true);
+    }
+  };
+  S.audio.currentTime = Math.max(0, Math.min(localTime, entry.end - entry.start - 0.01));
+  if (play) {
+    try {
+      await S.audio.play();
+    } catch (e) {
+      log("Playback error: " + e.message);
+      stopPlay(false);
+    }
+  }
+  return entry;
+}
+
 /* ------------------------------------------------------------- playback */
 $("#btnPlay").onclick = () => S.playing ? stopPlay(true) : startPlay();
 async function startPlay() {
-  if (!S.ready || S.playing || !S.audio) return;
+  if (!S.ready || S.playing || !S.proxyPieces.length) return;
   if (S.pos >= S.dur - 0.05) setPos(0);
-  if (S.audio.readyState < 1) await new Promise(r => S.audio.addEventListener("loadedmetadata", r, {once: true}));
-  S.audio.currentTime = S.pos;
-  S.audio.play().then(() => {
+  const idx = pieceIndex(S.pos);
+  const p = S.proxyPieces[idx];
+  const local = S.pos - p.start;
+  try {
+    await activatePiece(idx, local, true);
     S.playing = true; $("#btnPlay").textContent = "‖ Pause";
-    S.playTimer = setInterval(() => setPos(S.audio.currentTime, {fromPlay: true}), 100);
-  }).catch(e => log("Playback error: " + e.message));
+    S.playTimer = setInterval(() => {
+      if (!S.audio) return;
+      const abs = S.proxyPieces[S.activeIdx].start + S.audio.currentTime;
+      setPos(abs, {fromPlay: true});
+    }, 100);
+  } catch (e) {
+    log("Playback error: " + e.message);
+  }
 }
 function stopPlay(update = true, atEnd = false) {
   const was = S.playing;
   S.playing = false; clearInterval(S.playTimer); S.playTimer = null;
-  if (S.audio) S.audio.pause();
+  if (S.audio) try { S.audio.pause(); } catch (e) {}
   $("#btnPlay").textContent = "▶ Play";
-  if (was && update && S.ready) setPos(atEnd ? S.dur : (S.audio ? S.audio.currentTime : S.pos));
+  if (was && update && S.ready) {
+    const t = atEnd ? S.dur : (S.audio && S.activeIdx >= 0
+      ? S.proxyPieces[S.activeIdx].start + S.audio.currentTime
+      : S.pos);
+    setPos(t);
+  }
 }
 
 /* ------------------------------------------------------------- segments */
@@ -840,17 +977,134 @@ $("#bgPick").onchange = e => { S.bgFile = e.target.files[0] || null; $("#bgLbl")
 $("#btnBgClear").onclick = () => { S.bgFile = null; $("#bgPick").value = ""; $("#bgLbl").textContent = "black"; };
 
 /* ------------------------------------------------------------- export */
+/* ------------------------------------------------------------- predicted limits and recommendations */
+// Rough model. Speeds are x realtime measured on one core with busy stereo audio (1080p is an estimate);
+// transfer speeds are assumptions. The dialog only appears when an export is predicted to get close to a limit.
+const LIM = {jobH: 5.5, warnTime: 0.75, diskGB: 11, warnDisk: 0.8, ytPerDay: 6, proxyMB: 250};
+const SPEED = {"854x480": 3.8, "1280x720": 1.9, "1920x1080": 0.9};
+const VID_GBH = {"854x480": 0.45, "1280x720": 0.63, "1920x1080": 1.2};
+const ASSUME = {decodeX: 60, dlMBs: 25, upMBs: 15, audioX: 25, stillX: 30, stillGBH: 0.09, liteSize: 0.6};
+const PART_CHOICES = [600, 480, 360, 240, 180, 120, 90, 60, 45, 30];
+const fmtH = h => h >= 1 ? h.toFixed(1) + " h" : Math.round(h * 60) + " min";
+
+function splitParts(segs, partSec) {                    // segs in seconds; works in whole milliseconds
+  const ms = segs.map(g => [Math.round(g[0] * 1000), Math.round(g[1] * 1000)]);
+  if (!partSec) return [ms.map(g => [g[0] / 1000, g[1] / 1000])];
+  const cap = Math.round(partSec * 1000), parts = [];
+  let cur = [], room = cap;
+  for (let [a, b] of ms) {
+    while (a < b) {
+      const take = Math.min(b - a, room);
+      cur.push([a / 1000, (a + take) / 1000]); a += take; room -= take;
+      if (room === 0) { parts.push(cur); cur = []; room = cap; }
+    }
+  }
+  if (cur.length) parts.push(cur);
+  return parts;
+}
+
+function exportPlan(kind, whole, o = {}) {
+  const m = S.meta, isVideo = kind === "video";
+  const segs = whole ? [[0, S.dur]] : S.segs.map(g => [g.a, g.b]);
+  const mode = o.mode || (isVideo ? $("#vmode").value : "audio");
+  const res = $("#res").value, lite = o.lite ?? ($("#vfps").value === "lite");
+  const quality = Math.min(10, Math.max(0, parseInt($("#quality").value, 10) || 10));
+  const ytOn = isVideo && $("#ytOn").checked, copyOn = $("#driveCopy").checked || !!o.driveCopy;
+  let partMin = o.partMin ?? (partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60);
+  if (ytOn && (!partMin || partMin > 660)) partMin = 660;                  // YouTube's 12 h limit
+  const parts = splitParts(segs, partMin * 60), parallel = !!o.parallel;
+  const x = mode === "audio" ? ASSUME.audioX : mode === "still" ? ASSUME.stillX : SPEED[res] * (lite ? 2 : 1);
+  const outGBh = mode === "audio" ? 0.03 + 0.019 * quality : mode === "still" ? ASSUME.stillGBH : VID_GBH[res] * (lite ? ASSUME.liteSize : 1);
+  const masterGBh = m.rate * m.channels * 2 * 3600 / 1e9;
+  const totalH = m.duration / 3600;
+  const srcGBh = (S.srcBytes ? S.srcBytes / 1e9 : totalH * 0.3) / totalH;
+  const copies = isVideo ? (ytOn ? 1 : 0) + (copyOn ? 1 : 0) : 1;
+  const avgFileH = totalH / Math.max(1, m.files.length);
+  const dl = h => h * srcGBh * 1024 / ASSUME.dlMBs / 3600, up = gb => gb * copies * 1024 / ASSUME.upMBs / 3600;
+  const stats = parts.map(p => {
+    const durH = p.reduce((t, g) => t + g[1] - g[0], 0) / 3600, outGB = durH * outGBh;
+    return {durH, outGB, decodeH: parallel ? Math.min(totalH, durH + 2 * avgFileH) : totalH};
+  });
+  let jobs;
+  if (parallel) jobs = stats.map(t => ({timeH: t.decodeH / ASSUME.decodeX + dl(t.decodeH) + t.durH / x + up(t.outGB),
+                                        diskGB: t.decodeH * masterGBh + t.outGB}));
+  else jobs = [{timeH: totalH / ASSUME.decodeX + dl(totalH) + stats.reduce((t, p) => t + p.durH / x + up(p.outGB), 0),
+                diskGB: totalH * masterGBh + Math.max(...stats.map(p => p.outGB))}];
+  const worstTime = Math.max(...jobs.map(j => j.timeH)), worstDisk = Math.max(...jobs.map(j => j.diskGB));
+  const findings = [];
+  if (worstTime > LIM.jobH) findings.push({id: "time", level: "fail", text: `Predicted about ${fmtH(worstTime)} in one cloud job, over GitHub's 6 hour cap.`});
+  else if (worstTime > LIM.jobH * LIM.warnTime) findings.push({id: "time", level: "warn", text: `Predicted about ${fmtH(worstTime)} in one cloud job, close to GitHub's 6 hour cap.`});
+  if (worstDisk > LIM.diskGB) findings.push({id: "disk", level: "fail", text: `Predicted about ${worstDisk.toFixed(1)} GB of temporary files, over the runner's roughly 14 GB disk.`});
+  else if (worstDisk > LIM.diskGB * LIM.warnDisk) findings.push({id: "disk", level: "warn", text: `Predicted about ${worstDisk.toFixed(1)} GB of temporary files, close to the runner's roughly 14 GB disk.`});
+  if (ytOn && parts.length > LIM.ytPerDay) findings.push({id: "yt", level: "warn", text: `${parts.length} video parts is more than YouTube's daily upload quota (about ${LIM.ytPerDay}). Uploads past the quota will fail.`});
+  return {kind, mode, lite, parts, parallel, partMin, jobs: jobs.length, worstTime, worstDisk, findings, copyOn, ytOn};
+}
+
+function recommend(kind, whole) {
+  const base = exportPlan(kind, whole);
+  if (!base.findings.length) return null;
+  const isVideo = kind === "video", opts = [];
+  const fixed = p => !p.findings.some(f => f.id === "time" || f.id === "disk");
+  if (base.findings.some(f => f.id === "time" || f.id === "disk")) {
+    if (isVideo && base.mode === "visualizer" && !base.lite) {
+      const p = exportPlan(kind, whole, {lite: true});
+      if (fixed(p)) opts.push({label: "Lite visualizer: half the frame rate, about 2x faster", plan: p, apply: {lite: true}});
+    }
+    const cap = base.partMin > 0 ? Math.max(base.partMin, 30) : 600;
+    let pick = PART_CHOICES.find(pm => pm <= cap && (q => q.worstTime <= 3 && q.worstDisk <= 7)(exportPlan(kind, whole, {parallel: true, partMin: pm}))) || 30;
+    const p = exportPlan(kind, whole, {parallel: true, partMin: pick});
+    opts.push({label: `Split into ${p.parts.length} parallel cloud job${p.parts.length > 1 ? "s" : ""} of about ${pick} min each (each job decodes only the audio it needs)`,
+               plan: p, apply: {parallel: true, partMin: pick}});
+    if (isVideo && base.mode === "visualizer" && S.bgFile) {
+      const q = exportPlan(kind, whole, {mode: "still"});
+      if (fixed(q)) opts.push({label: "Image / GIF only look: much faster", plan: q, apply: {mode: "still"}});
+    }
+  }
+  if (base.findings.some(f => f.id === "yt") && !base.copyOn)
+    opts.push({label: "Also save a public Drive copy, so nothing is lost if YouTube refuses an upload", plan: base, apply: {driveCopy: true}});
+  return {base, opts};
+}
+
+function askPlan(rec) {
+  return new Promise(resolve => {
+    const dlg = $("#planDlg"), box = $("#planBtns");
+    $("#planBody").innerHTML = rec.base.findings.map(f => `<p><b>${f.level === "fail" ? "Will likely fail" : "Risky"}:</b> ${esc(f.text)}</p>`).join("") +
+      `<p class="hint">Estimates are rough. Nothing changes unless you pick an option.</p>`;
+    box.innerHTML = "";
+    const add = (text, cls, val) => {
+      const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls;
+      b.onclick = () => { dlg.onclose = null; dlg.close(); resolve(val); }; box.append(b);
+    };
+    rec.opts.forEach((o, i) => add((i === 0 ? "Recommended: " : "") + o.label + (o.plan.worstTime ? ` (about ${fmtH(o.plan.worstTime)} per job)` : ""), i === 0 ? "primary" : "", o.apply));
+    add("Export anyway", "", {});
+    add("Cancel", "", null);
+    dlg.onclose = () => resolve(null);
+    dlg.showModal();
+  });
+}
+
+function partInputs(plan, idx) {
+  return {...plan.inputs, segments: JSON.stringify(plan.parts[idx - 1]), part_min: "0", ranged: "true",
+          group: plan.id, part_idx: String(idx), part_total: String(plan.parts.length), delete_source: "false"};
+}
+
+/* ------------------------------------------------------------- export */
 async function doExport(kind, whole) {
   if (!S.ready || S.busy || !needCfg()) return;
   if (!whole && !S.segs.length) return setStatus("Add at least one segment to the queue first (or use the ENTIRE button).", "err");
-  const still = kind === "video" && $("#vmode").value === "still";
-  if (still && !S.bgFile) return setStatus("'Image / GIF only' needs a picture: click 'Image / GIF…' first.", "err");
-  S.busy = true; refreshButtons(); stopPlay(true);
+  const isVideo = kind === "video";
+  if (isVideo && $("#vmode").value === "still" && !S.bgFile) return setStatus("'Image / GIF only' needs a picture: open Settings and choose 'Image / GIF…' first.", "err");
+  if (isVideo && !$("#ytOn").checked && !$("#driveCopy").checked) return setStatus("No upload target: turn on YouTube or the Drive copy in Settings.", "err");
+  stopPlay(true);
+  try { await token(); } catch (e) { return setStatus(e.message || String(e), "err"); }   // sign-in popup stays inside the tap
+  let o = {};
+  const rec = recommend(kind, whole);
+  if (rec) { o = await askPlan(rec); if (o === null) return setStatus("Export cancelled."); }
+  S.busy = true; refreshButtons();
   try {
-    await token();                                          // sign-in popup (if needed) stays inside the tap
     const kids = await listFolder(S.jobId);
     if (!kids.some(f => f.name === "_meta.json")) throw new Error("This project's analysis files are gone from Drive.");
-    if (kind === "video") {
+    if (isVideo) {
       for (const f of kids.filter(f => f.name.toLowerCase().startsWith("_background.")))
         await driveJson(`files/${f.id}`, {method: "DELETE"});
       if (S.bgFile) {
@@ -858,27 +1112,35 @@ async function doExport(kind, whole) {
         await uploadFile(S.bgFile, {name: "_background" + (S.bgFile.name.match(/\.[^.]+$/)?.[0] || ".png"), parents: [S.jobId]}, () => {});
       }
     }
-    const isVideo = kind === "video";
-    const inputs = {
-      action: "export", source_folder: S.jobId,
-      segments: whole ? "" : JSON.stringify(S.segs.map(g => [g.a, g.b])),
-      kind, prefix: ($(isVideo ? "#vPrefix" : "#aPrefix").value.trim() || (isVideo ? "visualizer" : "log")),
-      title: isVideo ? $("#vTitle").value.trim() : "", part_min: String(partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60),
+    const pl = exportPlan(kind, whole, o);
+    const baseInputs = {
+      action: "export", source_folder: S.jobId, kind,
+      prefix: ($(isVideo ? "#vPrefix" : "#aPrefix").value.trim() || (isVideo ? "visualizer" : "log")),
+      title: isVideo ? $("#vTitle").value.trim() : "",
       quality: String(Math.min(10, Math.max(0, parseInt($("#quality").value, 10) || 10))),
-      mode: $("#vmode").value, resolution: $("#res").value,
-      youtube: $("#ytOn").checked ? "true" : "false", drive_copy: $("#driveCopy").checked ? "true" : "false",
-      stamp: $("#stampOn").checked ? "true" : "false", delete_source: $("#delSrc").checked ? "true" : "false"
+      mode: pl.mode === "audio" ? $("#vmode").value : pl.mode, resolution: $("#res").value,
+      youtube: $("#ytOn").checked ? "true" : "false", drive_copy: pl.copyOn ? "true" : "false",
+      stamp: $("#stampOn").checked ? "true" : "false", lite: pl.lite ? "true" : "false"
     };
-    if (isVideo && !inputs.youtube.includes("true") && inputs.drive_copy !== "true")
-      throw new Error("No upload target: turn on YouTube or the Drive copy in Settings.");
     const t0 = Date.now();
-    await dispatch(inputs);
+    if (o.parallel) {                                          // one cloud job per part; the plan file lets failed parts be retried
+      if ($("#delSrc").checked) log("Parallel export: the uploaded audio is not removed automatically. Delete the job from the Audio tree when all parts are done.");
+      const plan = {id: Math.random().toString(36).slice(2, 10), job: S.jobId, kind, created: new Date().toISOString(),
+                    parts: pl.parts, inputs: baseInputs};
+      await putEntry(`plan_${plan.id}.json`, plan);
+      for (let i = 1; i <= plan.parts.length; i++) { await dispatch(partInputs(plan, i)); if (i < plan.parts.length) await wait(400); }
+      log(`Started ${plan.parts.length} parallel cloud job(s) for the ${kind} export.`);
+    } else {
+      await dispatch({...baseInputs, segments: whole ? "" : JSON.stringify(S.segs.map(g => [g.a, g.b])),
+        part_min: String(pl.partMin), delete_source: $("#delSrc").checked ? "true" : "false",
+        ranged: "false", group: "", part_idx: "0", part_total: "1"});
+      log(`Export started in the cloud (${kind}${whole ? ", entire" : ", " + S.segs.length + " segment(s)"}).`);
+    }
     S.treeStale = true;
-    log(`Export started in the cloud (${kind}${whole ? ", entire" : ", " + S.segs.length + " segment(s)"}).`);
     setStatus("Export started. You can close this page; GitHub will notify you when it finishes.", "good");
     setTimeout(async () => {
       const run = await latestRun();
-      if (run && Date.parse(run.created_at) >= t0 - 15000) logLink("Cloud job (links appear in its Summary)", run.html_url);
+      if (run && Date.parse(run.created_at) >= t0 - 15000) logLink("Latest cloud job (links appear in its Summary)", run.html_url);
       loadRuns();
     }, 6000);
   } catch (e) { setStatus(e.message || String(e), "err"); log("ERROR: " + (e.message || e)); }
@@ -889,37 +1151,69 @@ $("#btnAudioAll").onclick = () => doExport("audio", true);
 $("#btnVideo").onclick = () => doExport("video", false);
 $("#btnVideoAll").onclick = () => doExport("video", true);
 
-/* ------------------------------------------------------------- Audio tree (Logger workspace / _index.json) */
-async function readIndex() {
+/* ------------------------------------------------------------- Audio tree (Logger workspace / index / one small file per entry) */
+async function indexDirId() {
   const {ws} = await ensureWorkspace();
-  const q = `name='_index.json' and '${ws}' in parents and trashed=false`;
-  const f = (await driveJson("files?fields=files(id,size)&q=" + encodeURIComponent(q))).files[0];
-  let data = {};
-  if (f) { try { data = JSON.parse(await (await driveDownload(f.id, +f.size)).text()); } catch (e) {} }
-  data.version = 1; data.jobs = data.jobs || {}; data.exports = data.exports || [];
-  return {data, id: f ? f.id : null, ws};
+  if (!WS.index) WS.index = (await findFolder("index", ws)) || await createFolder("index", ws);
+  return WS.index;
 }
-async function writeIndex(ws, data, id) {
-  data.updated = new Date().toISOString();
-  const body = JSON.stringify(data, null, 1), t = await token();
-  if (id) {
-    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
+async function readIndex() {
+  const dir = await indexDirId(), kids = (await listFolder(dir)).filter(f => /^(job|exp|plan)_/.test(f.name));
+  const data = {version: 1, jobs: {}, exports: [], plans: [], files: {}};
+  let i = 0;
+  const worker = async () => {
+    while (i < kids.length) {
+      const f = kids[i++];
+      try {
+        const o = JSON.parse(await (await driveDownload(f.id, +f.size)).text());
+        data.files[f.name] = f.id;
+        if (f.name.startsWith("job_")) data.jobs[o.id || f.name.slice(4, -5)] = o;
+        else if (f.name.startsWith("exp_")) data.exports.push(o);
+        else data.plans.push(o);
+      } catch (e) {}
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return data;
+}
+async function putEntry(name, obj) {                    // each entry is its own file, so parallel jobs never collide
+  const dir = await indexDirId(), t = await token(), body = JSON.stringify(obj, null, 1);
+  const known = S.index?.files?.[name];
+  if (known) {
+    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${known}?uploadType=media`,
       {method: "PATCH", headers: {Authorization: "Bearer " + t, "Content-Type": "application/json"}, body});
     if (!r.ok) throw new Error("Could not save the Audio tree: " + (await r.text()).slice(0, 150));
     return;
   }
   const b = "x" + Math.random().toString(36).slice(2);
-  const mp = `--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name: "_index.json", parents: [ws]})}\r\n` +
+  const mp = `--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name, parents: [dir]})}\r\n` +
              `--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
   const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
     {method: "POST", headers: {Authorization: "Bearer " + t, "Content-Type": "multipart/related; boundary=" + b}, body: mp});
   if (!r.ok) throw new Error("Could not save the Audio tree: " + (await r.text()).slice(0, 150));
+  if (S.index) S.index.files[name] = (await r.json()).id;
 }
-async function mutateIndex(fn) {                       // read, change, write back
-  const cur = await readIndex();
-  await fn(cur.data);
-  await writeIndex(cur.ws, cur.data, cur.id);
-  S.index = cur.data; renderTree();
+async function deleteEntry(name) {
+  const id = S.index?.files?.[name];
+  if (!id) return;
+  try { await driveJson(`files/${id}`, {method: "DELETE"}); } catch (e) { if (!String(e.message).includes("404")) throw e; }
+  delete S.index.files[name];
+}
+async function writeSnapshot() {                        // combined _index.json for other programs (derived, best effort)
+  try {
+    const {ws} = await ensureWorkspace(), t = await token();
+    const q = `name='_index.json' and '${ws}' in parents and trashed=false`;
+    const f = (await driveJson("files?fields=files(id)&q=" + encodeURIComponent(q))).files[0];
+    const body = JSON.stringify({version: 1, updated: new Date().toISOString(), jobs: S.index.jobs, exports: S.index.exports}, null, 1);
+    if (f) { await fetch(`https://www.googleapis.com/upload/drive/v3/files/${f.id}?uploadType=media`,
+      {method: "PATCH", headers: {Authorization: "Bearer " + t, "Content-Type": "application/json"}, body}); }
+    else {
+      const b = "x" + Math.random().toString(36).slice(2);
+      await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {method: "POST",
+        headers: {Authorization: "Bearer " + t, "Content-Type": "multipart/related; boundary=" + b},
+        body: `--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name: "_index.json", parents: [ws]})}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`});
+    }
+  } catch (e) {}
 }
 async function alive(id) {
   try { return !(await driveJson(`files/${id}?fields=id,trashed`)).trashed; }
@@ -929,13 +1223,28 @@ async function trashFile(id) {
   try { await driveJson(`files/${id}`, {method: "PATCH", body: JSON.stringify({trashed: true})}); }
   catch (e) { if (!String(e.message).includes("404")) throw e; }
 }
+function planMissing(plan) {
+  const done = new Set(S.index.exports.filter(e => e.group === plan.id).map(e => e.part));
+  return plan.parts.map((_, i) => i + 1).filter(n => !done.has(n));
+}
+async function cleanupPlans() {                         // finished (or orphaned) parallel plans are no longer needed
+  for (const p of [...S.index.plans]) {
+    if (!S.index.jobs[p.job] || !planMissing(p).length) {
+      await deleteEntry(`plan_${p.id}.json`);
+      S.index.plans = S.index.plans.filter(x => x.id !== p.id);
+    }
+  }
+}
+async function afterIndexChange() { renderTree(); await writeSnapshot(); }
 
 async function loadTree() {
   if (!needCfg()) return;
   try {
     $("#treeBox").open = true;
     $("#tree").textContent = "Loading…";
-    S.index = (await readIndex()).data; renderTree();
+    S.index = await readIndex();
+    await cleanupPlans();
+    renderTree(); writeSnapshot();
   } catch (e) { $("#tree").textContent = ""; setStatus(e.message || String(e), "err"); }
 }
 async function syncTree() {                            // prune what was deleted in Drive, add folders it doesn't know
@@ -943,14 +1252,21 @@ async function syncTree() {                            // prune what was deleted
   try {
     setStatus("Checking Drive…");
     const {uploads} = await ensureWorkspace();
-    await mutateIndex(async d => {
-      for (const id of Object.keys(d.jobs)) if (!(await alive(id))) delete d.jobs[id];
-      const keep = [];
-      for (const e of d.exports) if (!e.driveFileId || await alive(e.driveFileId)) keep.push(e);
-      d.exports = keep;
-      for (const f of (await listFolder(uploads)).filter(f => f.mimeType === FOLDER))
-        if (!d.jobs[f.id]) d.jobs[f.id] = {name: f.name, created: f.modifiedTime, driveUrl: `https://drive.google.com/drive/folders/${f.id}`};
-    });
+    S.index = await readIndex();
+    for (const id of Object.keys(S.index.jobs))
+      if (!(await alive(id))) { await deleteEntry(`job_${id}.json`); delete S.index.jobs[id]; }
+    const keep = [];
+    for (const e of S.index.exports) {
+      if (e.driveFileId && !(await alive(e.driveFileId))) await deleteEntry(`exp_${e.id}.json`);
+      else keep.push(e);
+    }
+    S.index.exports = keep;
+    for (const f of (await listFolder(uploads)).filter(f => f.mimeType === FOLDER))
+      if (!S.index.jobs[f.id]) {
+        const j = {id: f.id, name: f.name, created: f.modifiedTime, driveUrl: `https://drive.google.com/drive/folders/${f.id}`};
+        S.index.jobs[f.id] = j; await putEntry(`job_${f.id}.json`, j);
+      }
+    await cleanupPlans(); await afterIndexChange();
     setStatus("Audio tree is up to date.", "good");
   } catch (e) { setStatus(e.message || String(e), "err"); }
 }
@@ -966,12 +1282,21 @@ function renderTree() {
     <button class="danger" data-act="delex" data-id="${e.id}">Delete</button></span></div>`;
   const byJob = {};
   for (const e of idx.exports) (byJob[e.job] = byJob[e.job] || []).push(e);
+  const planRow = p => {
+    const miss = planMissing(p);
+    return miss.length ? `<div class="ex"><span class="tag ${p.kind}">${p.kind === "audio" ? "Audio" : "Video"}</span>
+      <span class="et">Parallel export: ${p.parts.length - miss.length} of ${p.parts.length} parts done</span>
+      <span class="hint">missing part${miss.length > 1 ? "s" : ""} ${miss.join(", ")}. Still running? Wait before retrying.</span>
+      <span class="links"><button data-act="retry" data-id="${p.id}">Retry missing</button></span></div>` : "";
+  };
   const jobs = Object.entries(idx.jobs).sort((a, b) => (b[1].created || "").localeCompare(a[1].created || ""));
   let html = jobs.map(([id, j]) => `<div class="job"><div class="jh"><b>${esc(j.name)}</b>
       <span class="hint">${j.duration ? fmtTime(j.duration, 0) + " · " : ""}${j.files ? j.files + " files" : "not analysed yet"}</span>
       <span class="links"><button data-act="open" data-id="${id}">Open</button>${link(j.driveUrl, "Drive")}
       <button class="danger" data-act="deljob" data-id="${id}">Delete job</button></span></div>
-      ${(byJob[id] || []).map(e => ex(e, false)).join("") || '<div class="ex hint">No exports yet</div>'}</div>`).join("");
+      ${(byJob[id] || []).sort((a, b) => (a.group || "").localeCompare(b.group || "") || (a.part || 0) - (b.part || 0)).map(e => ex(e, false)).join("")}
+      ${idx.plans.filter(p => p.job === id).map(planRow).join("")}
+      ${(byJob[id] || []).length || idx.plans.some(p => p.job === id) ? "" : '<div class="ex hint">No exports yet</div>'}</div>`).join("");
   const orphans = idx.exports.filter(e => !idx.jobs[e.job]);
   if (orphans.length) html += `<div class="job"><div class="jh"><b>From jobs no longer in Drive</b></div>${orphans.map(e => ex(e, true)).join("")}</div>`;
   box.innerHTML = html || "Nothing here yet.";
@@ -994,7 +1319,8 @@ async function deleteJob(id) {
   try {
     if (S.jobId === id) { stopPlay(false); resetProject(); S.jobId = null; S.items = []; renderFiles([]); $("#folderLbl").textContent = "No files selected"; }
     await trashFile(id);
-    await mutateIndex(d => { delete d.jobs[id]; });
+    await deleteEntry(`job_${id}.json`); delete S.index.jobs[id];
+    await cleanupPlans(); await afterIndexChange();
     log(`Deleted job ${name}.`); setStatus("Job deleted.", "good");
   } catch (e) { setStatus(e.message || String(e), "err"); }
   refreshButtons();
@@ -1006,9 +1332,21 @@ async function deleteExports(list, label) {
                (yt ? `\n\n${yt} also have a YouTube video. That stays on YouTube until you delete it in YouTube Studio.` : ""))) return;
   try {
     const ids = new Set(list.map(e => e.id));
-    for (const e of list) if (e.driveFileId) await trashFile(e.driveFileId);
-    await mutateIndex(d => { d.exports = d.exports.filter(e => !ids.has(e.id)); });
+    for (const e of list) { if (e.driveFileId) await trashFile(e.driveFileId); await deleteEntry(`exp_${e.id}.json`); }
+    S.index.exports = S.index.exports.filter(e => !ids.has(e.id));
+    await cleanupPlans(); await afterIndexChange();
     log(`Deleted ${list.length} export(s).`); setStatus("Deleted.", "good");
+  } catch (e) { setStatus(e.message || String(e), "err"); }
+}
+async function retryPlan(id) {
+  const p = S.index.plans.find(x => x.id === id); if (!p) return;
+  const miss = planMissing(p);
+  if (!miss.length) return setStatus("All parts are already done.");
+  if (!confirm(`Re-run part${miss.length > 1 ? "s" : ""} ${miss.join(", ")} of ${p.parts.length}? Parts that are still running would be duplicated.`)) return;
+  try {
+    await token();
+    for (const n of miss) { await dispatch(partInputs(p, n)); await wait(400); }
+    S.treeStale = true; log(`Retrying ${miss.length} part(s).`); setStatus("Retry started.", "good"); setTimeout(loadRuns, 5000);
   } catch (e) { setStatus(e.message || String(e), "err"); }
 }
 $("#btnOpen").onclick = () => { $("#treeBox").scrollIntoView({behavior: "smooth"}); loadTree(); };
@@ -1021,6 +1359,7 @@ $("#tree").addEventListener("click", e => {
   const id = b.dataset.id;
   if (b.dataset.act === "open") openJob(id);
   else if (b.dataset.act === "deljob") deleteJob(id);
+  else if (b.dataset.act === "retry") retryPlan(id);
   else if (b.dataset.act === "delex") {
     const x = S.index.exports.find(v => v.id === id);
     if (x) deleteExports([x], `"${x.title}"`);
