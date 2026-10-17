@@ -92,7 +92,8 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
   </div>
 
   <div class="row">
-    <input id="pick" type="file" multiple hidden accept="audio/*,.wav,.wave,.bwf,.adpcm,.au,.aif,.aiff,.flac,.mp3,.ogg,.opus,.m4a,.aac,.wma">
+    <input id="pick" type="file" multiple hidden accept="audio/*,.wav,.wave,.bwf,.adpcm,.au,.aif,.aiff,.flac,.mp3,.ogg,.opus,.m4a,.aac,.wma,.zip,application/zip">
+    <input id="addPick" type="file" multiple hidden accept="audio/*,.wav,.wave,.bwf,.adpcm,.au,.aif,.aiff,.flac,.mp3,.ogg,.opus,.m4a,.aac,.wma,.zip,application/zip">
     <button id="btnFiles">Select files…</button>
     <label for="sortBy">Sort by:</label>
     <select id="sortBy">
@@ -101,12 +102,14 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
       <option value="fname">File name</option>
     </select>
     <button id="btnOpen">Audio tree</button>
+    <button id="btnAdd" disabled title="Add more audio (or a .zip) to the job that is open, then analyse it again">Add files…</button>
+    <select id="addWhere" title="Where the added files go"><option value="end">added after the existing files</option><option value="sort">sorted in with the existing files</option></select>
     <button id="btnCancel" disabled>Cancel</button>
   </div>
   <div id="folderLbl" class="hint">No files selected</div>
 
   <dialog id="planDlg">
-    <div class="dlghead"><h2>This export may hit a limit</h2></div>
+    <div class="dlghead"><h2>Heads up</h2></div>
     <div id="planBody"></div>
     <div id="planBtns" class="row" style="flex-direction:column;align-items:stretch"></div>
   </dialog>
@@ -502,32 +505,37 @@ async function driveDownload(id, size, onProgress) {
 /* ------------------------------------------------------------- GitHub */
 const gh = (path, init = {}) => fetch("https://api.github.com/repos/" + cfg.repo + path, {...init, headers: {
   Authorization: "Bearer " + cfg.pat, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(init.headers || {})}});
-async function dispatch(inputs) {
-  const r = await gh("/actions/workflows/log-studio.yml/dispatches", {method: "POST", body: JSON.stringify({ref: cfg.branch || "main", inputs})});
+const MAIN_WF = "log-studio.yml", SPLIT_WF = "log-studio-split.yml";
+async function dispatch(inputs, wf = MAIN_WF) {
+  const r = await gh("/actions/workflows/" + wf + "/dispatches", {method: "POST", body: JSON.stringify({ref: cfg.branch || "main", inputs})});
   if (r.status !== 204) {
     const t = (await r.text()).slice(0, 200);
     throw new Error(r.status === 404
-      ? "GitHub says Not Found. Check that the repo is typed as owner/name, the token can use that repo (Actions: read and write), and .github/workflows/log-studio.yml exists on branch " + (cfg.branch || "main") + "."
+      ? "GitHub says Not Found. Check that the repo is typed as owner/name, the token can use that repo (Actions: read and write), and .github/workflows/" + wf + " exists on branch " + (cfg.branch || "main") + "."
       : "GitHub: " + t);
   }
 }
-async function latestRun() {
-  const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=1");
+async function latestRun(wf) {                       // wf = one workflow file, or any Log Studio workflow
+  if (wf) {
+    const r = await gh("/actions/workflows/" + wf + "/runs?per_page=1");
+    return r.ok ? ((await r.json()).workflow_runs[0] || null) : null;
+  }
+  const r = await gh("/actions/runs?per_page=30");
   if (!r.ok) return null;
-  return (await r.json()).workflow_runs[0] || null;
+  return (await r.json()).workflow_runs.find(w => (w.path || "").includes("log-studio")) || null;
 }
 let runsTimer = null;
 async function loadRuns() {
   clearTimeout(runsTimer);
   if (!cfg.repo || !cfg.pat) return;
   try {
-    const r = await gh("/actions/workflows/log-studio.yml/runs?per_page=10");
+    const r = await gh("/actions/runs?per_page=40");
     if (!r.ok) throw new Error("HTTP " + r.status);
-    const runs = (await r.json()).workflow_runs;
+    const runs = (await r.json()).workflow_runs.filter(w => (w.path || "").includes("log-studio")).slice(0, 12);
     $("#runs").innerHTML = runs.length ? runs.map(w => {
       const st = w.status === "completed" ? w.conclusion : w.status;
       return `<li><a href="${w.html_url}" target="_blank" rel="noopener">${fmtDate(Date.parse(w.created_at))}</a>
-        <span class="st-${st}">${st.replace("_", " ")}</span></li>`;
+        <span class="hint">${esc(w.display_title || "")}</span> <span class="st-${st}">${st.replace("_", " ")}</span></li>`;
     }).join("") : `<li class="hint">No runs yet.</li>`;
     if (runs.some(w => w.status !== "completed")) runsTimer = setTimeout(loadRuns, 20000);
     else if (S.treeStale && gToken && Date.now() < gExp) { S.treeStale = false; loadTree(); }
@@ -544,6 +552,7 @@ function refreshButtons() {
   document.querySelectorAll("#steps button").forEach(b => b.disabled = !S.ready);
   for (const s of EXPORT) $(s).disabled = !(S.ready && !S.busy);
   $("#btnFiles").disabled = $("#btnOpen").disabled = S.busy;
+  $("#btnAdd").disabled = S.busy || !S.jobId;
   $("#btnUpload").disabled = S.busy || !S.items.length;
   $("#btnCancel").disabled = !S.busy;
   if (S.ready && !S.proxyReady) $("#btnPlay").disabled = true;
@@ -604,7 +613,7 @@ async function waitForIngest(job, t0) {
   while (!S.cancel) {
     const kids = await listFolder(job);
     if (kids.some(f => f.name === "_meta.json")) { await loadProject(job, kids); return; }
-    const run = await latestRun();
+    const run = await latestRun(MAIN_WF);
     if (run && Date.parse(run.created_at) >= t0 - 15000) {
       if (!runUrlShown) { logLink("Cloud job", run.html_url); runUrlShown = true; }
       setStatus(`Cloud analysis: ${run.status.replace("_", " ")}…`);
@@ -667,7 +676,7 @@ async function loadProject(job, kids) {
   }
   let k = 0;
   renderFiles(src.map(f => {
-    const name = f.appProperties?.origName || f.name.replace(/^\d{4}_/, "");
+    const name = f.appProperties?.origName || f.name.replace(/^\d{4}_(?:z\d{3}_)?/, "");
     const start = (k < meta.files.length && meta.files[k].name === name) ? meta.files[k++].start : null;
     return {name, t: +(f.appProperties?.origT || Date.parse(f.modifiedTime)), size: +f.size, start};
   }));
@@ -980,12 +989,21 @@ $("#btnBgClear").onclick = () => { S.bgFile = null; $("#bgPick").value = ""; $("
 /* ------------------------------------------------------------- predicted limits and recommendations */
 // Rough model. Speeds are x realtime measured on one core with busy stereo audio (1080p is an estimate);
 // transfer speeds are assumptions. The dialog only appears when an export is predicted to get close to a limit.
-const LIM = {jobH: 5.5, warnTime: 0.75, diskGB: 11, warnDisk: 0.8, ytPerDay: 6, proxyMB: 250};
-const SPEED = {"854x480": 3.8, "1280x720": 1.9, "1920x1080": 0.9};
-const VID_GBH = {"854x480": 0.45, "1280x720": 0.63, "1920x1080": 1.2};
-const ASSUME = {decodeX: 60, dlMBs: 25, upMBs: 15, audioX: 25, stillX: 30, stillGBH: 0.09, liteSize: 0.6};
-const PART_CHOICES = [600, 480, 360, 240, 180, 120, 90, 60, 45, 30];
-const fmtH = h => h >= 1 ? h.toFixed(1) + " h" : Math.round(h * 60) + " min";
+const LIM = {ytPerDay: 6, proxyMB: 250};
+// The automatic split-parallel system (hidden). Same numbers as cloud_pipeline.py:
+//   V_max = T_limit * S_safety / (R_mode * E)  minutes of video one cloud job may render, also capped by runner disk.
+// R = job minutes per video minute, measured: a 6 h 06 m video took 4 h in Lite and 8 h in Normal (R 0.6545 / 1.309).
+const SPLIT = {limitMin: 360, safety: 0.90, ratio: {normal: 1.309, lite: 0.6545}, still: 0.05, audio: 0.05,
+               res: {"854x480": 0.5, "1280x720": 1, "1920x1080": 2.1}, diskGB: 20, minChunk: 20,
+               fanOutAt: 0.5, assumedEff: 1.3};  // assumedEff makes the page a bit more willing to split
+function chunkMinutes(kind, mode, lite, res) {
+  const r = kind === "audio" ? SPLIT.audio : mode === "still" ? SPLIT.still
+          : SPLIT.ratio[lite ? "lite" : "normal"] * (SPLIT.res[res] || 1);
+  const byTime = SPLIT.limitMin * SPLIT.safety / (r * SPLIT.assumedEff);
+  const byDisk = SPLIT.diskGB * 1e9 / (S.meta.rate * S.meta.channels * 2) / 60;
+  return Math.max(SPLIT.minChunk, Math.min(byTime, byDisk));
+}
+const partMinutes = p => p.reduce((t, g) => t + g[1] - g[0], 0) / 60;
 
 function splitParts(segs, partSec) {                    // segs in seconds; works in whole milliseconds
   const ms = segs.map(g => [Math.round(g[0] * 1000), Math.round(g[1] * 1000)]);
@@ -1004,62 +1022,23 @@ function splitParts(segs, partSec) {                    // segs in seconds; work
 }
 
 function exportPlan(kind, whole, o = {}) {
-  const m = S.meta, isVideo = kind === "video";
+  const isVideo = kind === "video";
   const segs = whole ? [[0, S.dur]] : S.segs.map(g => [g.a, g.b]);
   const mode = o.mode || (isVideo ? $("#vmode").value : "audio");
   const res = $("#res").value, lite = o.lite ?? ($("#vfps").value === "lite");
-  const quality = Math.min(10, Math.max(0, parseInt($("#quality").value, 10) || 10));
   const ytOn = isVideo && $("#ytOn").checked, copyOn = $("#driveCopy").checked || !!o.driveCopy;
   let partMin = o.partMin ?? (partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60);
   if (ytOn && (!partMin || partMin > 660)) partMin = 660;                  // YouTube's 12 h limit
-  const parts = splitParts(segs, partMin * 60), parallel = !!o.parallel;
-  const x = mode === "audio" ? ASSUME.audioX : mode === "still" ? ASSUME.stillX : SPEED[res] * (lite ? 2 : 1);
-  const outGBh = mode === "audio" ? 0.03 + 0.019 * quality : mode === "still" ? ASSUME.stillGBH : VID_GBH[res] * (lite ? ASSUME.liteSize : 1);
-  const masterGBh = m.rate * m.channels * 2 * 3600 / 1e9;
-  const totalH = m.duration / 3600;
-  const srcGBh = (S.srcBytes ? S.srcBytes / 1e9 : totalH * 0.3) / totalH;
-  const copies = isVideo ? (ytOn ? 1 : 0) + (copyOn ? 1 : 0) : 1;
-  const avgFileH = totalH / Math.max(1, m.files.length);
-  const dl = h => h * srcGBh * 1024 / ASSUME.dlMBs / 3600, up = gb => gb * copies * 1024 / ASSUME.upMBs / 3600;
-  const stats = parts.map(p => {
-    const durH = p.reduce((t, g) => t + g[1] - g[0], 0) / 3600, outGB = durH * outGBh;
-    return {durH, outGB, decodeH: parallel ? Math.min(totalH, durH + 2 * avgFileH) : totalH};
-  });
-  let jobs;
-  if (parallel) jobs = stats.map(t => ({timeH: t.decodeH / ASSUME.decodeX + dl(t.decodeH) + t.durH / x + up(t.outGB),
-                                        diskGB: t.decodeH * masterGBh + t.outGB}));
-  else jobs = [{timeH: totalH / ASSUME.decodeX + dl(totalH) + stats.reduce((t, p) => t + p.durH / x + up(p.outGB), 0),
-                diskGB: totalH * masterGBh + Math.max(...stats.map(p => p.outGB))}];
-  const worstTime = Math.max(...jobs.map(j => j.timeH)), worstDisk = Math.max(...jobs.map(j => j.diskGB));
+  const parts = splitParts(segs, partMin * 60);
+  const vmax = chunkMinutes(kind, mode, lite, res);
   const findings = [];
-  if (worstTime > LIM.jobH) findings.push({id: "time", level: "fail", text: `Predicted about ${fmtH(worstTime)} in one cloud job, over GitHub's 6 hour cap.`});
-  else if (worstTime > LIM.jobH * LIM.warnTime) findings.push({id: "time", level: "warn", text: `Predicted about ${fmtH(worstTime)} in one cloud job, close to GitHub's 6 hour cap.`});
-  if (worstDisk > LIM.diskGB) findings.push({id: "disk", level: "fail", text: `Predicted about ${worstDisk.toFixed(1)} GB of temporary files, over the runner's roughly 14 GB disk.`});
-  else if (worstDisk > LIM.diskGB * LIM.warnDisk) findings.push({id: "disk", level: "warn", text: `Predicted about ${worstDisk.toFixed(1)} GB of temporary files, close to the runner's roughly 14 GB disk.`});
   if (ytOn && parts.length > LIM.ytPerDay) findings.push({id: "yt", level: "warn", text: `${parts.length} video parts is more than YouTube's daily upload quota (about ${LIM.ytPerDay}). Uploads past the quota will fail.`});
-  return {kind, mode, lite, parts, parallel, partMin, jobs: jobs.length, worstTime, worstDisk, findings, copyOn, ytOn};
+  return {kind, mode, lite, parts, partMin, vmax, findings, copyOn, ytOn};
 }
 
-function recommend(kind, whole) {
-  const base = exportPlan(kind, whole);
+function recommend(kind, whole) {                         // long exports are split automatically; only real choices are offered
+  const base = exportPlan(kind, whole), opts = [];
   if (!base.findings.length) return null;
-  const isVideo = kind === "video", opts = [];
-  const fixed = p => !p.findings.some(f => f.id === "time" || f.id === "disk");
-  if (base.findings.some(f => f.id === "time" || f.id === "disk")) {
-    if (isVideo && base.mode === "visualizer" && !base.lite) {
-      const p = exportPlan(kind, whole, {lite: true});
-      if (fixed(p)) opts.push({label: "Lite visualizer: half the frame rate, about 2x faster", plan: p, apply: {lite: true}});
-    }
-    const cap = base.partMin > 0 ? Math.max(base.partMin, 30) : 600;
-    let pick = PART_CHOICES.find(pm => pm <= cap && (q => q.worstTime <= 3 && q.worstDisk <= 7)(exportPlan(kind, whole, {parallel: true, partMin: pm}))) || 30;
-    const p = exportPlan(kind, whole, {parallel: true, partMin: pick});
-    opts.push({label: `Split into ${p.parts.length} parallel cloud job${p.parts.length > 1 ? "s" : ""} of about ${pick} min each (each job decodes only the audio it needs)`,
-               plan: p, apply: {parallel: true, partMin: pick}});
-    if (isVideo && base.mode === "visualizer" && S.bgFile) {
-      const q = exportPlan(kind, whole, {mode: "still"});
-      if (fixed(q)) opts.push({label: "Image / GIF only look: much faster", plan: q, apply: {mode: "still"}});
-    }
-  }
   if (base.findings.some(f => f.id === "yt") && !base.copyOn)
     opts.push({label: "Also save a public Drive copy, so nothing is lost if YouTube refuses an upload", plan: base, apply: {driveCopy: true}});
   return {base, opts};
@@ -1075,7 +1054,7 @@ function askPlan(rec) {
       const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls;
       b.onclick = () => { dlg.onclose = null; dlg.close(); resolve(val); }; box.append(b);
     };
-    rec.opts.forEach((o, i) => add((i === 0 ? "Recommended: " : "") + o.label + (o.plan.worstTime ? ` (about ${fmtH(o.plan.worstTime)} per job)` : ""), i === 0 ? "primary" : "", o.apply));
+    rec.opts.forEach((o, i) => add((i === 0 ? "Recommended: " : "") + o.label, i === 0 ? "primary" : "", o.apply));
     add("Export anyway", "", {});
     add("Cancel", "", null);
     dlg.onclose = () => resolve(null);
@@ -1083,10 +1062,15 @@ function askPlan(rec) {
   });
 }
 
-function partInputs(plan, idx) {
-  return {...plan.inputs, segments: JSON.stringify(plan.parts[idx - 1]), part_min: "0", ranged: "true",
-          group: plan.id, part_idx: String(idx), part_total: String(plan.parts.length), delete_source: "false"};
+const SPLIT_KEYS = ["source_folder", "segments", "kind", "prefix", "title", "quality", "mode", "resolution",
+                    "youtube", "drive_copy", "stamp", "lite", "group", "part_idx", "part_total"];
+function partInputs(plan, idx) {                          // -> {inputs, wf}: long parts use the split workflow
+  const all = {...plan.inputs, segments: JSON.stringify(plan.parts[idx - 1]), part_min: "0", ranged: "true",
+               group: plan.id, part_idx: String(idx), part_total: String(plan.parts.length), delete_source: "false"};
+  if (!plan.split?.[idx - 1]) return {inputs: all, wf: MAIN_WF};
+  return {inputs: Object.fromEntries(SPLIT_KEYS.map(k => [k, all[k]])), wf: SPLIT_WF};
 }
+async function dispatchPart(plan, idx) { const {inputs, wf} = partInputs(plan, idx); await dispatch(inputs, wf); }
 
 /* ------------------------------------------------------------- export */
 async function doExport(kind, whole) {
@@ -1123,13 +1107,15 @@ async function doExport(kind, whole) {
       stamp: $("#stampOn").checked ? "true" : "false", lite: pl.lite ? "true" : "false"
     };
     const t0 = Date.now();
-    if (o.parallel) {                                          // one cloud job per part; the plan file lets failed parts be retried
-      if ($("#delSrc").checked) log("Parallel export: the uploaded audio is not removed automatically. Delete the job from the Audio tree when all parts are done.");
+    const long = pl.parts.map(p => partMinutes(p) > pl.vmax * SPLIT.fanOutAt);       // parts one job could not render safely
+    const fanOut = long.some(Boolean) || pl.parts.reduce((t, p) => t + partMinutes(p), 0) > pl.vmax * SPLIT.fanOutAt;
+    if (fanOut) {                                              // automatic: one run per part; long parts are cut into chunks
+      if ($("#delSrc").checked) log("Long export: the uploaded audio is not removed automatically. Delete the job from the Audio tree when all parts are done.");
       const plan = {id: Math.random().toString(36).slice(2, 10), job: S.jobId, kind, created: new Date().toISOString(),
-                    parts: pl.parts, inputs: baseInputs};
+                    parts: pl.parts, split: long, inputs: baseInputs};
       await putEntry(`plan_${plan.id}.json`, plan);
-      for (let i = 1; i <= plan.parts.length; i++) { await dispatch(partInputs(plan, i)); if (i < plan.parts.length) await wait(400); }
-      log(`Started ${plan.parts.length} parallel cloud job(s) for the ${kind} export.`);
+      for (let i = 1; i <= plan.parts.length; i++) { await dispatchPart(plan, i); if (i < plan.parts.length) await wait(400); }
+      log(`Started ${plan.parts.length} cloud run(s) for the ${kind} export` + (long.some(Boolean) ? " (long parts are rendered in chunks and joined automatically)." : "."));
     } else {
       await dispatch({...baseInputs, segments: whole ? "" : JSON.stringify(S.segs.map(g => [g.a, g.b])),
         part_min: String(pl.partMin), delete_source: $("#delSrc").checked ? "true" : "false",
@@ -1302,16 +1288,121 @@ function renderTree() {
   box.innerHTML = html || "Nothing here yet.";
 }
 
+const INGEST_KEY = "logstudio.ingestAt";
+const ingestStamps = () => { try { return JSON.parse(localStorage.getItem(INGEST_KEY) || "{}"); } catch (e) { return {}; } };
+async function startIngest(job) {                         // start (or rejoin) the cloud analysis of a job, then wait for it
+  S.jobId = job; S.treeStale = true;
+  localStorage.setItem(JOB_KEY, JSON.stringify({id: job}));
+  const stamps = ingestStamps(), prev = stamps[job];
+  let t0 = Date.now();
+  const running = prev && Date.now() - prev < 20 * 60000 ? await latestRun(MAIN_WF) : null;
+  if (running && running.status !== "completed" && Date.parse(running.created_at) >= prev - 15000) {
+    log("An analysis of this job is already running. Waiting for it.");
+    t0 = prev;
+  } else {
+    setStatus("Starting the cloud analysis…");
+    await dispatch({action: "ingest", source_folder: job});
+    stamps[job] = Date.now(); localStorage.setItem(INGEST_KEY, JSON.stringify(stamps));
+    log("Cloud analysis started. You can close this page and come back through “Audio tree”.");
+  }
+  await waitForIngest(job, t0);
+}
+const AUDIO_NAME = /\.(wav|wave|bwf|adpcm|au|aif|aiff|flac|mp3|ogg|opus|m4a|aac|wma|zip)$/i;
 async function openJob(id) {
   if (S.busy) return;
   try {
     S.busy = true; refreshButtons(); resetProject();
     const kids = await listFolder(id);
-    if (!kids.some(f => f.name === "_meta.json")) throw new Error("That job was never analysed (no waveform yet).");
+    if (!kids.some(f => f.name === "_meta.json")) {          // never analysed: start the analysis now
+      if (!needCfg()) return;
+      const hasAudio = kids.some(f => f.mimeType !== FOLDER && !f.name.startsWith("_")
+        && (AUDIO_NAME.test(f.name) || (f.mimeType || "").startsWith("audio/")));
+      if (!hasAudio) throw new Error("That job has no audio files to analyse.");
+      log("This job was not analysed yet. Starting the analysis…");
+      $("#folderLbl").scrollIntoView({behavior: "smooth"});
+      await startIngest(id);
+      return;
+    }
     await loadProject(id, kids);
     $("#folderLbl").scrollIntoView({behavior: "smooth"});
-  } catch (e) { setStatus(e.message || String(e), "err"); }
+  } catch (e) { setStatus(e.message || String(e), "err"); log("ERROR: " + (e.message || e)); }
   finally { S.busy = false; refreshButtons(); }
+}
+
+/* ------------------------------------------------------------- add files (or a .zip) to the open job */
+$("#btnAdd").onclick = () => { if (S.jobId && !S.busy) $("#addPick").click(); };
+$("#addPick").onchange = async e => {
+  const files = [...e.target.files]; e.target.value = "";
+  if (files.length) await addToJob(files);
+};
+async function addToJob(files) {
+  if (!S.jobId || S.busy || !needCfg()) return;
+  const job = S.jobId, how = $("#sortBy").value;
+  S.busy = true; S.cancel = false; refreshButtons(); guardUnload(true);
+  try {
+    await token();
+    await keepAwake(true);
+    setStatus("Reading files…");
+    const add = [];
+    for (const f of files) {
+      const it = {file: f, name: f.name, size: f.size, mod: f.lastModified, dur: await wavDuration(f)};
+      it.t = (how === "name" ? nameTime(it.name) : null) ?? it.mod;
+      add.push(it);
+    }
+    const total = add.reduce((t, i) => t + i.size, 0);
+    if (!confirm(`Add ${add.length} file(s) (${human(total)}) to this job and analyse it again?\n` +
+                 `A .zip is unpacked in the cloud (its audio files are used, in name order).`)) { setStatus("Idle"); return; }
+    const cmp = (x, y) => how === "fname" ? natCmp(x.name, y.name) : (x.t - y.t || natCmp(x.name, y.name));
+    const kids = await listFolder(job);
+    const existing = kids.filter(f => f.mimeType !== FOLDER && !f.name.startsWith("_") && !f.mimeType.startsWith("application/vnd.google-apps"));
+    let place = $("#addWhere").value;
+    if (place === "sort" && existing.some(f => /\.zip$/i.test(f.name))) {
+      log("An earlier .zip has not been unpacked yet, so the new files go after the existing ones.");
+      place = "end";
+    }
+    const names = [];                                       // final Drive names, in the same order as `add`
+    if (place === "end") {
+      add.sort(cmp);
+      let n = Math.max(0, ...existing.map(f => +(f.name.match(/^(\d{4})_/)?.[1] || 0)));
+      for (const it of add) names.push(`${String(++n).padStart(4, "0")}_${it.name}`);
+    } else {                                                // sort everything together, renumber the existing files
+      const all = existing.map(f => {
+        const nm = f.appProperties?.origName || f.name.replace(/^\d{4}_(?:z\d{3}_)?/, "");
+        const t0 = +(f.appProperties?.origT || Date.parse(f.modifiedTime));
+        return {name: nm, t: how === "name" ? (nameTime(nm) ?? t0) : t0, old: f};
+      });
+      for (const it of add) all.push({name: it.name, t: it.t, it});
+      all.sort(cmp);
+      for (let i = 0; i < all.length; i++) {
+        const nn = `${String(i + 1).padStart(4, "0")}_${all[i].name}`;
+        if (all[i].old) {
+          if (all[i].old.name !== nn)
+            await driveJson(`files/${all[i].old.id}?fields=id`, {method: "PATCH", body: JSON.stringify({name: nn})});
+        } else all[i].it.finalName = nn;
+      }
+      for (const it of add) names.push(it.finalName);
+    }
+    let sent = 0;
+    log(`Adding ${add.length} file(s), ${human(total)}`);
+    for (let i = 0; i < add.length; i++) {
+      const it = add[i];
+      log(`  ${i + 1}/${add.length} ${it.name}`);
+      await uploadFile(it.file, {
+        name: names[i], parents: [job], modifiedTime: new Date(it.mod).toISOString(),
+        appProperties: {origName: it.name, origT: String(Math.round(it.t))}
+      }, n => { sent += n; setProgress(sent / total); setStatus(`Uploading… ${human(sent)} of ${human(total)}`); });
+    }
+    const old = kids.find(f => f.name === "_meta.json");    // so the page waits for the NEW analysis
+    if (old) await driveJson(`files/${old.id}`, {method: "DELETE"});
+    resetProject();
+    await keepAwake(false); guardUnload(false);
+    await startIngest(job);
+  } catch (e) {
+    setStatus(e.message || String(e), "err"); log("ERROR: " + (e.message || e));
+  } finally {
+    await keepAwake(false); guardUnload(false);
+    S.busy = false; setProgress(0); refreshButtons();
+  }
 }
 async function deleteJob(id) {
   const name = S.index?.jobs[id]?.name || "this job";
@@ -1345,7 +1436,7 @@ async function retryPlan(id) {
   if (!confirm(`Re-run part${miss.length > 1 ? "s" : ""} ${miss.join(", ")} of ${p.parts.length}? Parts that are still running would be duplicated.`)) return;
   try {
     await token();
-    for (const n of miss) { await dispatch(partInputs(p, n)); await wait(400); }
+    for (const n of miss) { await dispatchPart(p, n); await wait(400); }
     S.treeStale = true; log(`Retrying ${miss.length} part(s).`); setStatus("Retry started.", "good"); setTimeout(loadRuns, 5000);
   } catch (e) { setStatus(e.message || String(e), "err"); }
 }
