@@ -90,6 +90,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355            # GitHub hard limit is 360
     steps:
+      - name: Maximize disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean || true
+          if [ -d /mnt ] && sudo mkdir -p /mnt/work && sudo chown "$USER" /mnt/work; then
+            echo "TMPDIR=/mnt/work" >> "$GITHUB_ENV"        # the big second disk
+          fi
+          df -h / /mnt || true
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
