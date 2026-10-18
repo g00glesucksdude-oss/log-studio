@@ -995,7 +995,7 @@ const LIM = {ytPerDay: 6, proxyMB: 250};
 // R = job minutes per video minute, measured: a 6 h 06 m video took 4 h in Lite and 8 h in Normal (R 0.6545 / 1.309).
 const SPLIT = {limitMin: 360, safety: 0.90, ratio: {normal: 1.309, lite: 0.6545}, still: 0.05, audio: 0.05,
                res: {"854x480": 0.5, "1280x720": 1, "1920x1080": 2.1}, diskGB: 20, minChunk: 20,
-               fanOutAt: 0.5, assumedEff: 1.3};  // assumedEff makes the page a bit more willing to split
+               fanOutAt: 0.5, assumedEff: 1.3};   // assumedEff makes the page a bit more willing to split
 function chunkMinutes(kind, mode, lite, res) {
   const r = kind === "audio" ? SPLIT.audio : mode === "still" ? SPLIT.still
           : SPLIT.ratio[lite ? "lite" : "normal"] * (SPLIT.res[res] || 1);
