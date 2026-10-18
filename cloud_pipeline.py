@@ -1088,6 +1088,8 @@ def cmd_export(a, drive, yt):
         log(f"Rendering {label}: {fmt_time(dur)}")
         feed_ffmpeg(build_cmd(opts, rate, ch, out), master, ranges, ch, "render")
         log(f"Rendered {human_size(os.path.getsize(out))}")
+        if drive:                                        # connections idle during a long render go stale
+            drive, yt = build_services(need_youtube=yt is not None)
         row, bad = deliver(a, drive, yt, ws, out_folder, job_name, kind, out, dur, pi, pn, label, safe, ext, now)
         failed = failed or bad
         if not a.no_upload:
@@ -1188,6 +1190,7 @@ def cmd_render_chunk(a, drive):
     feed_ffmpeg(build_cmd(opts, rate, ch, None, chunk=(str(vpath), str(apath)), dur=dur),
                 master, ranges, ch, f"chunk {a.idx}")
     os.remove(master)                                     # free the big file before uploading
+    drive = build_services(False)[0]                      # the old connection sat idle for the whole render and is dead
 
     def hand_over(d):                                     # idempotent, so it can simply be run again
         for old in _children(d, folder):                  # a retry replaces its own earlier files
@@ -1278,6 +1281,7 @@ def cmd_merge(a, drive):
     log(f"Joined file: {human_size(os.path.getsize(out))}")
     for f in vlist + alist:
         os.remove(f)
+    drive = build_services(False)[0]                      # fresh connection after the long join
     dur = sum(c["dur"] for c in chunks)
     yt = None
     if kind == "video" and not a.no_youtube:
