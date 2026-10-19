@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1e1e1e">
+<meta name="application-name" content="Log Studio">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
 <title>ADPCM Log Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1690,8 +1698,13 @@ async function chatSend() {
   chatBusy = true; $("#chatSend").disabled = true; chatNote("Thinking…");
   const cp = {contents: chat.contents.length, msgs: chat.msgs.length}, st = {acted: false};
   const parts = [];
-  if (!chat.contents.length)                                // the audio rides on the first message only
-    chat.files.forEach((f, k) => { parts.push({text: `Audio file ${k + 1}: ${f.display}`}); parts.push({fileData: {mimeType: f.mime, fileUri: f.uri}}); });
+  // Always re-attach the audio files so Gemini doesn't forget them across turns
+  if (chat.files.length && !chatExpired()) {
+    chat.files.forEach((f, k) => {
+      parts.push({text: `Audio file ${k + 1}: ${f.display}`});
+      parts.push({fileData: {mimeType: f.mime, fileUri: f.uri}});
+    });
+  }
   parts.push({text: g.gPrefix ? g.gPrefix + " " + text : text});
   chat.contents.push({role: "user", parts}); chat.msgs.push({role: "user", text});
   $("#chatIn").value = ""; renderChat();
