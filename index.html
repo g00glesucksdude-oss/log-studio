@@ -64,6 +64,15 @@ dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);bo
   width:min(600px,94vw);max-height:90vh;overflow:auto}
 dialog::backdrop{background:rgba(0,0,0,.6)}
 dialog h2{font-size:1.1rem;margin:0}
+textarea{font:inherit;color:var(--text);background:var(--plot);border:1px solid var(--line);border-radius:6px;padding:7px 9px;flex:1;min-width:180px;resize:vertical}
+textarea:focus{outline:2px solid var(--wave);outline-offset:1px}
+#chatLog{max-height:55vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin:6px 0}
+.msg{padding:8px 10px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--line)}
+.msg.user{background:#2b3a45;align-self:flex-end;max-width:92%}
+.msg.model{background:var(--plot);align-self:stretch}
+.msg.tool{align-self:stretch;color:var(--dim);font-size:.82rem;border-style:dashed;padding:5px 9px}
+.msg .copy{margin-top:6px;font-size:.8rem;padding:3px 8px}
+#gemList label{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid #2d2d2d;color:var(--text)}
 .dlghead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 details>summary{cursor:pointer;font-weight:600;padding:4px 0}
 .job{border-top:1px solid var(--line);padding:8px 0}
@@ -124,6 +133,16 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
       <div class="row"><label class="lbl" for="gid">Google client ID</label><input id="gid" type="text" autocomplete="off" style="min-width:240px"></div>
       <div class="row"><label class="lbl" for="pat">GitHub token</label><input id="pat" type="password" autocomplete="off" placeholder="github_pat_…"></div>
       <div class="row"><button id="saveCfg" class="primary">Save connections</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Gemini chat (saved in this browser only)</legend>
+      <div class="row"><label class="lbl" for="gKey">Gemini API key</label><input id="gKey" type="password" autocomplete="off" placeholder="from Google AI Studio"></div>
+      <div class="row"><label class="lbl" for="gModel">Model</label><input id="gModel" type="text" value="gemini-3-flash-preview" style="min-width:220px"></div>
+      <div class="row"><label class="lbl" for="gSystem">Standing instructions</label><textarea id="gSystem" rows="4" placeholder="Sent invisibly with every message"></textarea></div>
+      <div class="row"><label><input id="gAuto" type="checkbox"> Let Gemini start exports without asking me first</label></div>
+      <div class="hint">Off (recommended): you confirm every export. A video export may publish to YouTube, and audio you attach could contain spoken instructions.</div>
+      <div class="row"><label class="lbl" for="gPrefix">Prefix for each message</label><input id="gPrefix" type="text" placeholder="optional, put in front of every message you send" style="min-width:220px"></div>
     </fieldset>
 
     <fieldset>
@@ -232,6 +251,30 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
       <p class="hint">Deleting moves files to the Drive trash. A YouTube video must be deleted in YouTube Studio; its link is listed here.</p>
     </details>
   </fieldset>
+
+  <fieldset>
+    <details id="chatBox">
+      <summary>Gemini chat</summary>
+      <div class="row">
+        <button id="chatNew">New chat</button>
+        <button id="chatPick">Attach audio…</button>
+      </div>
+      <div id="chatFiles" class="hint"></div>
+      <div id="chatLog"></div>
+      <div class="row" style="align-items:flex-end">
+        <textarea id="chatIn" rows="2" placeholder="Message (Ctrl+Enter sends)"></textarea>
+        <button id="chatSend" class="primary">Send</button>
+      </div>
+      <div id="chatNote" class="hint"></div>
+    </details>
+  </fieldset>
+
+  <dialog id="gemDlg">
+    <div class="dlghead"><h2>Attach audio exports</h2><button id="gemCancel">Cancel</button></div>
+    <div id="gemList" class="scroll" style="max-height:50vh"></div>
+    <div class="row"><button id="gemGo" class="primary">Attach selected</button></div>
+    <div class="hint">A cloud job uploads the files to Gemini, so your phone doesn't. Gemini keeps them for 48 hours.</div>
+  </dialog>
 
   <fieldset>
     <legend>Cloud runs</legend>
@@ -996,11 +1039,11 @@ const LIM = {ytPerDay: 6, proxyMB: 250};
 const SPLIT = {limitMin: 360, safety: 0.90, ratio: {normal: 1.309, lite: 0.6545}, still: 0.05, audio: 0.05,
                res: {"854x480": 0.5, "1280x720": 1, "1920x1080": 2.1}, diskGB: 20, minChunk: 20,
                fanOutAt: 0.5, assumedEff: 1.3};   // assumedEff makes the page a bit more willing to split
-function chunkMinutes(kind, mode, lite, res) {
+function chunkMinutes(kind, mode, lite, res, meta = S.meta) {
   const r = kind === "audio" ? SPLIT.audio : mode === "still" ? SPLIT.still
           : SPLIT.ratio[lite ? "lite" : "normal"] * (SPLIT.res[res] || 1);
   const byTime = SPLIT.limitMin * SPLIT.safety / (r * SPLIT.assumedEff);
-  const byDisk = SPLIT.diskGB * 1e9 / (S.meta.rate * S.meta.channels * 2) / 60;
+  const byDisk = SPLIT.diskGB * 1e9 / (meta.rate * meta.channels * 2) / 60;
   return Math.max(SPLIT.minChunk, Math.min(byTime, byDisk));
 }
 const partMinutes = p => p.reduce((t, g) => t + g[1] - g[0], 0) / 60;
@@ -1023,14 +1066,14 @@ function splitParts(segs, partSec) {                    // segs in seconds; work
 
 function exportPlan(kind, whole, o = {}) {
   const isVideo = kind === "video";
-  const segs = whole ? [[0, S.dur]] : S.segs.map(g => [g.a, g.b]);
+  const segs = o.segs || (whole ? [[0, S.dur]] : S.segs.map(g => [g.a, g.b]));
   const mode = o.mode || (isVideo ? $("#vmode").value : "audio");
-  const res = $("#res").value, lite = o.lite ?? ($("#vfps").value === "lite");
-  const ytOn = isVideo && $("#ytOn").checked, copyOn = $("#driveCopy").checked || !!o.driveCopy;
+  const res = o.res || $("#res").value, lite = o.lite ?? ($("#vfps").value === "lite");
+  const ytOn = isVideo && (o.youtube ?? $("#ytOn").checked), copyOn = (o.copyOn ?? $("#driveCopy").checked) || !!o.driveCopy;
   let partMin = o.partMin ?? (partSeconds(isVideo ? "#vPart" : "#aPart", isVideo ? 36000 : 3600) / 60);
   if (ytOn && (!partMin || partMin > 660)) partMin = 660;                  // YouTube's 12 h limit
   const parts = splitParts(segs, partMin * 60);
-  const vmax = chunkMinutes(kind, mode, lite, res);
+  const vmax = chunkMinutes(kind, mode, lite, res, o.meta || S.meta);
   const findings = [];
   if (ytOn && parts.length > LIM.ytPerDay) findings.push({id: "yt", level: "warn", text: `${parts.length} video parts is more than YouTube's daily upload quota (about ${LIM.ytPerDay}). Uploads past the quota will fail.`});
   return {kind, mode, lite, parts, partMin, vmax, findings, copyOn, ytOn};
@@ -1073,6 +1116,36 @@ function partInputs(plan, idx) {                          // -> {inputs, wf}: lo
 async function dispatchPart(plan, idx) { const {inputs, wf} = partInputs(plan, idx); await dispatch(inputs, wf); }
 
 /* ------------------------------------------------------------- export */
+// Starts the cloud run(s) for an export. Used by the export buttons and by Gemini's tools (nothing is loaded here).
+async function launchExport(job, kind, whole, segs, pl, ov = {}) {
+  const isVideo = kind === "video";
+  const baseInputs = {
+    action: "export", source_folder: job, kind,
+    prefix: (ov.prefix ?? $(isVideo ? "#vPrefix" : "#aPrefix").value).trim() || (isVideo ? "visualizer" : "log"),
+    title: isVideo ? (ov.title ?? $("#vTitle").value).trim() : "",
+    quality: String(Math.min(10, Math.max(0, parseInt(ov.quality ?? $("#quality").value, 10) || 10))),
+    mode: pl.mode === "audio" ? $("#vmode").value : pl.mode, resolution: ov.res || $("#res").value,
+    youtube: (ov.youtube ?? $("#ytOn").checked) ? "true" : "false", drive_copy: pl.copyOn ? "true" : "false",
+    stamp: $("#stampOn").checked ? "true" : "false", lite: pl.lite ? "true" : "false"
+  };
+  const long = pl.parts.map(p => partMinutes(p) > pl.vmax * SPLIT.fanOutAt);         // parts one job could not render safely
+  const fanOut = long.some(Boolean) || pl.parts.reduce((t, p) => t + partMinutes(p), 0) > pl.vmax * SPLIT.fanOutAt;
+  if (fanOut) {                                              // automatic: one run per part; long parts are cut into chunks
+    if (ov.delSrc) log("Long export: the uploaded audio is not removed automatically. Delete the job from the Audio tree when all parts are done.");
+    const plan = {id: Math.random().toString(36).slice(2, 10), job, kind, created: new Date().toISOString(),
+                  parts: pl.parts, split: long, inputs: baseInputs};
+    await putEntry(`plan_${plan.id}.json`, plan);
+    for (let i = 1; i <= plan.parts.length; i++) { await dispatchPart(plan, i); if (i < plan.parts.length) await wait(400); }
+    log(`Started ${plan.parts.length} cloud run(s) for the ${kind} export` + (long.some(Boolean) ? " (long parts are rendered in chunks and joined automatically)." : "."));
+  } else {
+    await dispatch({...baseInputs, segments: whole ? "" : JSON.stringify(segs),
+      part_min: String(pl.partMin), delete_source: ov.delSrc ? "true" : "false",
+      ranged: "false", group: "", part_idx: "0", part_total: "1"});
+    log(`Export started in the cloud (${kind}${whole ? ", entire" : ", " + segs.length + " segment(s)"}).`);
+  }
+  S.treeStale = true;
+  return {cloud_runs: fanOut ? pl.parts.length : 1, long_parts_are_chunked: long.some(Boolean)};
+}
 async function doExport(kind, whole) {
   if (!S.ready || S.busy || !needCfg()) return;
   if (!whole && !S.segs.length) return setStatus("Add at least one segment to the queue first (or use the ENTIRE button).", "err");
@@ -1097,31 +1170,8 @@ async function doExport(kind, whole) {
       }
     }
     const pl = exportPlan(kind, whole, o);
-    const baseInputs = {
-      action: "export", source_folder: S.jobId, kind,
-      prefix: ($(isVideo ? "#vPrefix" : "#aPrefix").value.trim() || (isVideo ? "visualizer" : "log")),
-      title: isVideo ? $("#vTitle").value.trim() : "",
-      quality: String(Math.min(10, Math.max(0, parseInt($("#quality").value, 10) || 10))),
-      mode: pl.mode === "audio" ? $("#vmode").value : pl.mode, resolution: $("#res").value,
-      youtube: $("#ytOn").checked ? "true" : "false", drive_copy: pl.copyOn ? "true" : "false",
-      stamp: $("#stampOn").checked ? "true" : "false", lite: pl.lite ? "true" : "false"
-    };
     const t0 = Date.now();
-    const long = pl.parts.map(p => partMinutes(p) > pl.vmax * SPLIT.fanOutAt);       // parts one job could not render safely
-    const fanOut = long.some(Boolean) || pl.parts.reduce((t, p) => t + partMinutes(p), 0) > pl.vmax * SPLIT.fanOutAt;
-    if (fanOut) {                                              // automatic: one run per part; long parts are cut into chunks
-      if ($("#delSrc").checked) log("Long export: the uploaded audio is not removed automatically. Delete the job from the Audio tree when all parts are done.");
-      const plan = {id: Math.random().toString(36).slice(2, 10), job: S.jobId, kind, created: new Date().toISOString(),
-                    parts: pl.parts, split: long, inputs: baseInputs};
-      await putEntry(`plan_${plan.id}.json`, plan);
-      for (let i = 1; i <= plan.parts.length; i++) { await dispatchPart(plan, i); if (i < plan.parts.length) await wait(400); }
-      log(`Started ${plan.parts.length} cloud run(s) for the ${kind} export` + (long.some(Boolean) ? " (long parts are rendered in chunks and joined automatically)." : "."));
-    } else {
-      await dispatch({...baseInputs, segments: whole ? "" : JSON.stringify(S.segs.map(g => [g.a, g.b])),
-        part_min: String(pl.partMin), delete_source: $("#delSrc").checked ? "true" : "false",
-        ranged: "false", group: "", part_idx: "0", part_total: "1"});
-      log(`Export started in the cloud (${kind}${whole ? ", entire" : ", " + S.segs.length + " segment(s)"}).`);
-    }
+    await launchExport(S.jobId, kind, whole, S.segs.map(g => [g.a, g.b]), pl, {delSrc: $("#delSrc").checked});
     S.treeStale = true;
     setStatus("Export started. You can close this page; GitHub will notify you when it finishes.", "good");
     setTimeout(async () => {
@@ -1457,8 +1507,264 @@ $("#tree").addEventListener("click", e => {
   }
 });
 
+/* ------------------------------------------------------------- Gemini chat */
+const GEM_KEY = "logstudio.gemini", CHAT_KEY = "logstudio.chat", GEM_WF = "log-studio-gemini.yml";
+const GEM_IDS = ["gKey", "gModel", "gSystem", "gPrefix"];
+const gem = () => { try { return JSON.parse(localStorage.getItem(GEM_KEY) || "{}"); } catch (e) { return {}; } };
+function loadGemSettings() { const g = gem(); for (const id of GEM_IDS) if (g[id] != null) $("#" + id).value = g[id]; $("#gAuto").checked = !!g.gAuto; }
+function saveGemSettings() { const g = {}; for (const id of GEM_IDS) g[id] = $("#" + id).value; g.gAuto = $("#gAuto").checked; localStorage.setItem(GEM_KEY, JSON.stringify(g)); }
+$("#dlg").addEventListener("input", e => { if (GEM_IDS.includes(e.target.id)) saveGemSettings(); });
+$("#dlg").addEventListener("change", e => { if (e.target.id === "gAuto") saveGemSettings(); });
+let chat = (() => { try { return JSON.parse(localStorage.getItem(CHAT_KEY)); } catch (e) { return null; } })() || {files: [], msgs: []};
+chat.contents = chat.contents || chat.msgs.filter(m => m.role !== "tool").map(m => ({role: m.role, parts: [{text: m.text}]}));
+let chatBusy = false;
+const saveChat = () => localStorage.setItem(CHAT_KEY, JSON.stringify(chat));
+const chatExpired = () => chat.files.length > 0 && chat.expires && Date.now() > Date.parse(chat.expires);
+function chatNote(t, bad) { const n = $("#chatNote"); n.textContent = t || ""; n.className = "hint" + (bad ? " err" : ""); }
+function renderChat() {
+  const box = $("#chatLog"); box.textContent = "";
+  for (const m of chat.msgs) {
+    const d = document.createElement("div");
+    d.className = "msg " + (m.role === "user" ? "user" : m.role === "tool" ? "tool" : "model");
+    d.textContent = m.text;                                 // textContent: nothing from Gemini is run as HTML
+    if (m.role === "model") {
+      const b = document.createElement("button"); b.className = "copy"; b.textContent = "Copy";
+      b.onclick = () => navigator.clipboard?.writeText(m.text).then(() => { b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1200); });
+      d.append(document.createElement("br"), b);
+    }
+    box.append(d);
+  }
+  box.scrollTop = box.scrollHeight;
+  $("#chatFiles").textContent = chat.files.length
+    ? "Attached: " + chat.files.map(x => x.display).join(", ") + (chatExpired() ? "  (EXPIRED: attach again)" : "")
+    : "No audio attached. Tap “Attach audio…” to choose from your exports.";
+}
+/* --- tools: Gemini can look things up and start cloud exports. Nothing here loads the waveform, the master or any audio. --- */
+const GEM_BUILTIN = `You are the assistant inside Log Studio, a tool that merges long audio logs and exports parts of them. You have tools to look up jobs and exports and to start cloud exports (audio cuts, waveform videos). Rules: times are seconds from the start of the whole log unless the user says otherwise (accept h:mm:ss and convert). Call get_job before cutting so times stay inside the log. If audio is attached to this chat, time 0 of an attached file is the start of that exported file; use map_export_time to convert a time in it to log time. Starting an export uploads files (a video may be published to YouTube), so say briefly what you are about to start. Never invent job or export IDs. Keep answers short.`;
+const SEGS_SCHEMA = {type: "ARRAY", description: "Pieces of the log to include, in order, in seconds from the start of the log. Omit for the whole log.",
+  items: {type: "OBJECT", properties: {start: {type: "NUMBER"}, end: {type: "NUMBER"}}, required: ["start", "end"]}};
+const GEM_TOOLS = [{functionDeclarations: [
+  {name: "list_jobs", description: "List the user's uploaded log jobs: id, name, duration in seconds, number of files."},
+  {name: "get_job", description: "Details of one job: duration, sample rate and the source files with their start offsets in seconds. Small and cheap.",
+   parameters: {type: "OBJECT", properties: {job_id: {type: "STRING"}}, required: ["job_id"]}},
+  {name: "list_exports", description: "The user's recent exports (newest first): id, kind (audio/video), title, job, duration, part number, links, and which stretches of the log it contains when known."},
+  {name: "map_export_time", description: "Convert a time inside an exported file (seconds from the start of that file) to the matching time in the original log.",
+   parameters: {type: "OBJECT", properties: {export_id: {type: "STRING"}, seconds: {type: "NUMBER"}}, required: ["export_id", "seconds"]}},
+  {name: "export_audio", description: "Start a cloud export of audio (Ogg) from a job. Several segments are joined into one file; long ones are split into parts.",
+   parameters: {type: "OBJECT", properties: {job_id: {type: "STRING"}, segments: SEGS_SCHEMA, prefix: {type: "STRING", description: "File name prefix"},
+     part_minutes: {type: "NUMBER", description: "Maximum minutes per file"}, quality: {type: "INTEGER", description: "0 to 10, lower = smaller file"}}, required: ["job_id"]}},
+  {name: "export_video", description: "Start a cloud export of a waveform visualizer video. Uploads to YouTube and/or Drive according to the user's settings unless told otherwise.",
+   parameters: {type: "OBJECT", properties: {job_id: {type: "STRING"}, segments: SEGS_SCHEMA, prefix: {type: "STRING"}, title: {type: "STRING"},
+     part_minutes: {type: "NUMBER"}, resolution: {type: "STRING", enum: ["854x480", "1280x720", "1920x1080"]}, lite: {type: "BOOLEAN", description: "12 fps, faster"},
+     mode: {type: "STRING", enum: ["visualizer", "still"]}, youtube: {type: "BOOLEAN"}, drive_copy: {type: "BOOLEAN"}}, required: ["job_id"]}},
+  {name: "list_runs", description: "Recent cloud runs and their status (queued, running, success, failure)."}
+]}];
+
+async function readMeta(jobId) {                           // the small _meta.json only
+  const kids = await listFolder(jobId);
+  const m = kids.find(f => f.name === "_meta.json");
+  if (!m) throw new Error("That job has not been analysed yet.");
+  return driveJson(`files/${m.id}?alt=media`);
+}
+function cleanSegments(list, dur) {
+  if (!Array.isArray(list) || !list.length) return null;
+  if (list.length > 200) throw new Error("Too many segments (max 200).");
+  const out = list.map(g => {
+    const a = Number(g?.start), b = Number(g?.end);
+    if (!(a >= 0) || !(b > a)) throw new Error("Each segment needs 0 <= start < end, in seconds.");
+    return [Math.max(0, a), Math.min(dur, b)];
+  }).filter(g => g[1] > g[0]);
+  if (!out.length) throw new Error("The segments are outside the log (it is " + Math.round(dur) + " s long).");
+  return out;
+}
+async function prepareExport(kind, a) {
+  S.index = S.index || await readIndex();
+  if (!S.index.jobs[a.job_id]) throw new Error("Unknown job_id. Call list_jobs first.");
+  const meta = await readMeta(a.job_id);
+  const segs = cleanSegments(a.segments, meta.duration), whole = !segs, isVideo = kind === "video";
+  const res = ["854x480", "1280x720", "1920x1080"].includes(a.resolution) ? a.resolution : $("#res").value;
+  const youtube = isVideo ? (typeof a.youtube === "boolean" ? a.youtube : $("#ytOn").checked) : false;
+  const copyOn = typeof a.drive_copy === "boolean" ? a.drive_copy : $("#driveCopy").checked;
+  if (isVideo && !youtube && !copyOn) throw new Error("A video needs a target: YouTube and/or a Drive copy.");
+  const o = {segs: segs || [[0, meta.duration]], meta, res, youtube, copyOn,
+             mode: a.mode === "still" ? "still" : isVideo ? "visualizer" : undefined,
+             lite: typeof a.lite === "boolean" ? a.lite : undefined};
+  const pm = Number(a.part_minutes); if (pm > 0) o.partMin = Math.max(1, pm);
+  const pl = exportPlan(kind, whole, o);
+  const ov = {res, youtube, prefix: String(a.prefix || "").replace(/[^\w.-]+/g, "_").slice(0, 60), title: String(a.title || "").slice(0, 90),
+              quality: a.quality};
+  if (!ov.prefix) delete ov.prefix; if (!ov.title) delete ov.title; if (a.quality == null) delete ov.quality;
+  const total = pl.parts.reduce((t, p) => t + partMinutes(p), 0);
+  const what = `${kind === "video" ? "VIDEO" : "audio"} export of "${S.index.jobs[a.job_id].name}": ${whole ? "the whole log" : segs.length + " segment(s)"}, ` +
+    `${Math.round(total)} min in ${pl.parts.length} part(s)` +
+    (isVideo ? `, ${res}${pl.lite ? " lite" : ""}, ${youtube ? "UPLOAD TO YOUTUBE" : "no YouTube"}${pl.copyOn ? " + public Drive copy" : ""}` : "");
+  return {job: a.job_id, kind, whole, segs: segs || [[0, meta.duration]], pl, ov, what};
+}
+async function approve(text) {
+  if (gem().gAuto) return true;
+  return confirm("Gemini wants to start:\n\n" + text + "\n\nAllow?");
+}
+async function runTool(name, args, say) {
+  const ok = result => ({result, acted: false});
+  try {
+    S.index = S.index || await readIndex();
+    if (name === "list_jobs") return ok({jobs: Object.values(S.index.jobs).map(j => ({job_id: j.id, name: j.name, duration_s: j.duration, files: j.files}))});
+    if (name === "get_job") {
+      if (!S.index.jobs[args.job_id]) throw new Error("Unknown job_id. Call list_jobs first.");
+      const m = await readMeta(args.job_id);
+      return ok({job_id: args.job_id, name: S.index.jobs[args.job_id].name, duration_s: m.duration, sample_rate: m.rate, channels: m.channels,
+                 file_count: m.files.length, files: m.files.slice(0, 200).map(f => ({name: f.name, start_s: Math.round(f.start * 1000) / 1000}))});
+    }
+    if (name === "list_exports") {
+      const list = [...S.index.exports].sort((a, b) => Date.parse(b.created) - Date.parse(a.created)).slice(0, 40);
+      return ok({exports: list.map(e => ({export_id: e.id, kind: e.kind, title: e.title, job_id: e.job, job_name: e.jobName, duration_s: e.duration,
+        part: e.part, part_total: e.partTotal, created: e.created, segments_in_log: e.segments, youtube_url: e.youtubeUrl, drive_url: e.driveUrl}))});
+    }
+    if (name === "map_export_time") {
+      const e = S.index.exports.find(x => x.id === args.export_id);
+      if (!e) throw new Error("Unknown export_id. Call list_exports first.");
+      if (!e.segments) throw new Error("This export was made before segment tracking, so its position in the log is unknown.");
+      let t = Number(args.seconds), left = t;
+      if (!(t >= 0) || t > e.duration + 1) throw new Error("That time is outside the export (" + Math.round(e.duration) + " s long).");
+      for (const [a, b] of e.segments) { if (left <= b - a + 0.001) return ok({log_seconds: Math.round((a + left) * 1000) / 1000, job_id: e.job}); left -= b - a; }
+      throw new Error("Could not map that time.");
+    }
+    if (name === "export_audio" || name === "export_video") {
+      const kind = name === "export_video" ? "video" : "audio";
+      const pr = await prepareExport(kind, args);
+      say("▶ " + pr.what);
+      if (!(await approve(pr.what))) { say("✖ You declined."); return ok({error: "The user declined this export."}); }
+      await token();
+      const r = await launchExport(pr.job, kind, pr.whole, pr.segs, pr.pl, pr.ov);
+      say("✔ Started. It will appear in the Audio tree when the cloud job finishes.");
+      return {result: {started: true, ...r, note: "Progress: list_runs. The result appears in list_exports when done."}, acted: true};
+    }
+    if (name === "list_runs") {
+      const r = await gh("/actions/runs?per_page=30");
+      if (!r.ok) throw new Error("GitHub " + r.status);
+      return ok({runs: (await r.json()).workflow_runs.filter(w => (w.path || "").includes("log-studio")).slice(0, 10)
+        .map(w => ({title: w.display_title, status: w.status, conclusion: w.conclusion, started: w.created_at}))});
+    }
+    throw new Error("Unknown tool " + name);
+  } catch (e) { return ok({error: e.message || String(e)}); }
+}
+
+async function geminiCall(g) {
+  const sys = GEM_BUILTIN + ((g.gSystem || "").trim() ? "\n\n" + g.gSystem.trim() : "");
+  const body = {contents: chat.contents, tools: GEM_TOOLS, systemInstruction: {parts: [{text: sys}]}};
+  const model = (g.gModel || "gemini-3-flash-preview").trim();
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {method: "POST", headers: {"Content-Type": "application/json", "x-goog-api-key": g.gKey}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || `Gemini error ${r.status}`);
+  const cand = j.candidates?.[0];
+  if (!cand?.content?.parts?.length)
+    throw new Error(j.promptFeedback?.blockReason ? "Blocked: " + j.promptFeedback.blockReason
+                    : "Gemini returned no text" + (cand?.finishReason ? " (" + cand.finishReason + ")" : ""));
+  return cand.content;                                      // kept exactly as received (needed for function calling)
+}
+async function chatTurn(g, st) {
+  for (let step = 0; step < 8; step++) {
+    const content = await geminiCall(g);
+    chat.contents.push({role: "model", parts: content.parts});
+    const calls = content.parts.filter(p => p.functionCall);
+    const text = content.parts.filter(p => !p.thought && p.text).map(p => p.text).join("");
+    if (text) chat.msgs.push({role: "model", text});
+    if (!calls.length) { if (!text) throw new Error("Gemini returned no text"); return; }
+    const answers = [];
+    for (const c of calls) {
+      const r = await runTool(c.functionCall.name, c.functionCall.args || {}, t => { chat.msgs.push({role: "tool", text: t}); renderChat(); });
+      if (r.acted) st.acted = true;
+      answers.push({functionResponse: {name: c.functionCall.name, ...(c.functionCall.id ? {id: c.functionCall.id} : {}), response: r.result}});
+    }
+    chat.contents.push({role: "user", parts: answers});
+    renderChat();
+  }
+  throw new Error("Gemini kept calling tools, so I stopped after 8 steps.");
+}
+async function chatSend() {
+  const g = gem(), text = $("#chatIn").value.trim();
+  if (!text || chatBusy) return;
+  if (!g.gKey) { $("#dlg").showModal(); return chatNote("Add your Gemini API key in Settings first.", true); }
+  if (chatExpired()) return chatNote("The attached audio has expired (Gemini keeps files for 48 hours). Attach it again.", true);
+  chatBusy = true; $("#chatSend").disabled = true; chatNote("Thinking…");
+  const cp = {contents: chat.contents.length, msgs: chat.msgs.length}, st = {acted: false};
+  const parts = [];
+  if (!chat.contents.length)                                // the audio rides on the first message only
+    chat.files.forEach((f, k) => { parts.push({text: `Audio file ${k + 1}: ${f.display}`}); parts.push({fileData: {mimeType: f.mime, fileUri: f.uri}}); });
+  parts.push({text: g.gPrefix ? g.gPrefix + " " + text : text});
+  chat.contents.push({role: "user", parts}); chat.msgs.push({role: "user", text});
+  $("#chatIn").value = ""; renderChat();
+  try {
+    await chatTurn(g, st); saveChat(); chatNote("");
+  } catch (e) {
+    if (st.acted) {                                         // an export already started: keep the record, don't offer to resend
+      chat.contents.push({role: "model", parts: [{text: "(stopped: " + (e.message || e) + ")"}]});
+      chat.msgs.push({role: "tool", text: "Error: " + (e.message || e)}); saveChat(); chatNote("An export was already started; check the Audio tree before asking again.", true);
+    } else {
+      chat.contents.length = cp.contents; chat.msgs.length = cp.msgs; $("#chatIn").value = text;
+      chatNote(e.message || String(e), true);
+    }
+  } finally { chatBusy = false; $("#chatSend").disabled = false; renderChat(); }
+}
+$("#chatSend").onclick = chatSend;
+$("#chatIn").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); chatSend(); } });
+$("#chatNew").onclick = () => {
+  if (chat.msgs.length && !confirm("Start a new chat? The current conversation will be cleared.")) return;
+  chat = {files: [], msgs: [], contents: []}; saveChat(); renderChat(); chatNote("");
+};
+const hms = s => { s = Math.round(s || 0); return `${Math.floor(s / 3600)}:${pad2(Math.floor(s / 60) % 60)}:${pad2(s % 60)}`; };
+$("#chatPick").onclick = async () => {
+  if (chatBusy || !needCfg()) return;
+  try {
+    chatNote("Loading your exports…");
+    await token();
+    S.index = S.index || await readIndex();
+    const list = S.index.exports.filter(e => e.kind === "audio" && e.driveFileId)
+      .sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
+    if (!list.length) return chatNote("No audio exports found. Export audio first.", true);
+    $("#gemList").innerHTML = list.map(e => `<label><input type="checkbox" value="${esc(e.id)}">
+      <span>${esc(e.title || e.driveName)}<br><span class="hint">${esc(e.jobName || "")} · ${hms(e.duration)} · ${esc(fmtDate(Date.parse(e.created)))}</span></span></label>`).join("");
+    chatNote(""); $("#gemDlg").showModal();
+  } catch (e) { chatNote(e.message || String(e), true); }
+};
+$("#gemCancel").onclick = () => $("#gemDlg").close();
+$("#gemGo").onclick = async () => {
+  const ids = [...$("#gemList").querySelectorAll("input:checked")].map(i => i.value);
+  if (!ids.length) return;
+  $("#gemDlg").close();
+  // attach in time order, parts of one export in order
+  const chosen = ids.map(id => S.index.exports.find(e => e.id === id)).filter(Boolean)
+    .sort((a, b) => (a.job || "").localeCompare(b.job || "") || Date.parse(a.created) - Date.parse(b.created) || (a.part || 0) - (b.part || 0));
+  if (chat.msgs.length && !confirm("Attaching audio starts a new chat. Continue?")) return;
+  chatBusy = true; $("#chatSend").disabled = true;
+  try {
+    const req = Math.random().toString(36).slice(2, 10);
+    const {ws} = await ensureWorkspace();
+    await dispatch({file_ids: chosen.map(e => e.driveFileId).join(","), workspace: ws, req}, GEM_WF);
+    chatNote("Cloud job started. This usually takes a minute or two…");
+    let res = null;
+    for (let i = 0; i < 180 && !res; i++) {
+      await wait(5000);
+      const gf = await findFolder("gemini", ws);
+      const f = gf ? (await listFolder(gf)).find(k => k.name === `gemini_${req}.json`) : null;
+      if (f) res = await driveJson(`files/${f.id}?alt=media`);
+      else if (i % 4 === 3) {
+        const run = await latestRun(GEM_WF);
+        if (run && Date.parse(run.created_at) >= Date.now() - 30 * 60000 && run.status === "completed" && run.conclusion !== "success")
+          throw new Error("The cloud upload failed. Check the GEMINI_API_KEY secret and the run's log on GitHub.");
+      }
+    }
+    if (!res) throw new Error("Timed out waiting for the cloud upload.");
+    if (!res.files?.length) throw new Error("No file could be uploaded. " + (res.errors || []).join(" "));
+    chat = {files: res.files, expires: res.expires, msgs: [], contents: []}; saveChat(); renderChat();
+    chatNote(res.errors?.length ? `Attached ${res.files.length}; ${res.errors.length} failed.` : "Ready. Ask away.");
+  } catch (e) { chatNote(e.message || String(e), true); }
+  finally { chatBusy = false; $("#chatSend").disabled = false; }
+};
+
 /* ------------------------------------------------------------- start */
-loadCfg(); refreshButtons(); renderSegs(); requestDraw(); loadRuns();
+loadCfg(); loadGemSettings(); renderChat(); refreshButtons(); renderSegs(); requestDraw(); loadRuns();
 </script>
 </body>
 </html>

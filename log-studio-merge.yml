@@ -1,0 +1,55 @@
+name: Log Studio merge
+
+# Joins the chunks of one part (stream copy for video, one AAC/Vorbis encode for the sound) and uploads.
+# Started by repository_dispatch from the render jobs of this repo or of the worker repo.
+run-name: merge ${{ github.event.client_payload.stage || inputs.stage }}
+
+on:
+  repository_dispatch:
+    types: [log-studio-merge]
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage folder name (re-run a merge by hand)"
+        required: true
+      source_folder:
+        description: "Drive job folder ID"
+        required: true
+
+concurrency:
+  group: merge-${{ github.event.client_payload.stage || inputs.stage }}
+  cancel-in-progress: false      # a second trigger waits, then finds the stage folder gone and exits
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Maximize disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean || true
+          if [ -d /mnt ] && sudo mkdir -p /mnt/work && sudo chown "$USER" /mnt/work; then
+            echo "TMPDIR=/mnt/work" >> "$GITHUB_ENV"        # the big second disk
+          fi
+          df -h / /mnt || true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install -q numpy google-api-python-client google-auth google-auth-httplib2
+      - name: Merge and upload
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}   # Drive account
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}           # YouTube account
+          STAGE: ${{ github.event.client_payload.stage || inputs.stage }}
+          IN_SRC: ${{ github.event.client_payload.source_folder || inputs.source_folder }}
+        run: python cloud_pipeline.py merge --source-folder "$IN_SRC" --stage "$STAGE"
