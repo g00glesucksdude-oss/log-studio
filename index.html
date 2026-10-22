@@ -83,12 +83,55 @@ textarea:focus{outline:2px solid var(--wave);outline-offset:1px}
 #idxBtn{position:fixed;top:15px;left:15px;z-index:60;background:transparent;border:1px solid transparent;color:var(--dim);padding:3px 6px;font-size:.85rem}
 #idxBtn:hover:not(:disabled){background:rgba(60,60,60,.6);color:var(--text)}
 .titlebar h1{padding-left:86px}
-#idxDrawer{position:fixed;top:0;left:0;bottom:0;width:min(94vw,440px);background:var(--panel);border-right:1px solid var(--line);z-index:70;transform:translateX(-105%);transition:transform .2s;overflow:auto;padding:max(12px,env(safe-area-inset-top)) 12px 24px;visibility:hidden}
+#idxDrawer{position:fixed;top:0;left:0;bottom:0;width:min(100vw,420px);background:var(--panel);border-right:1px solid var(--line);z-index:70;transform:translateX(-105%);transition:transform .2s;display:flex;flex-direction:column;box-shadow:8px 0 32px rgba(0,0,0,.35);visibility:hidden}
 #idxDrawer.open{transform:none;visibility:visible}
-.nres{border-top:1px solid #2d2d2d;padding:8px 0}
-.nres .meta{color:var(--dim);font-size:.82rem}
-.nres .snip{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere}
-.nres button,.nres a{margin-right:8px}
+#idxDrawer .d-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:max(12px,env(safe-area-inset-top)) 14px 10px;border-bottom:1px solid var(--line)}
+#idxDrawer .d-head h2{margin:0;font-size:1.1rem;font-weight:800}
+#idxDrawer .d-body{flex:1;overflow:auto;padding:12px 14px 28px;-webkit-overflow-scrolling:touch}
+#idxDrawer button.ghost{background:transparent;border-color:transparent;color:var(--dim)}
+#idxDrawer button.ghost:hover:not(:disabled){background:#2f3338;color:var(--text)}
+#idxDrawer input[type=search]{background:var(--plot);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;padding-left:36px;padding-right:56px;font-size:15px}
+#idxDrawer input[type=text]{width:100%}
+#idxDrawer .search-wrap{position:relative;margin-bottom:10px}
+#idxDrawer .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--dim);pointer-events:none;font-size:14px}
+#idxDrawer .search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:4px 8px;font-size:12px;display:none}
+#idxDrawer .search-wrap.has-query .search-clear{display:inline-flex}
+#idxDrawer .nchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+#idxDrawer .nchip{display:inline-flex;align-items:center;gap:4px;background:#2b3a45;border:1px solid var(--line);border-radius:14px;padding:4px 10px;font-size:.82rem;color:var(--text);cursor:pointer;user-select:none}
+#idxDrawer .nchip:hover{border-color:var(--wave)}
+#idxDrawer .nchip.on{background:#1a3a48;border-color:var(--wave);color:var(--wave)}
+#idxDrawer .nchip .x{opacity:.6}
+#idxDrawer .filters,#idxDrawer .filters-advanced{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+#idxDrawer .filters-advanced{display:none}
+#idxDrawer .filters-advanced.open{display:grid}
+#idxDrawer .filters select,#idxDrawer .filters-advanced select{width:100%;font-size:.9rem}
+#idxDrawer .more-filters{background:transparent;border:none;color:var(--dim);padding:0 0 10px;font-size:.82rem;cursor:pointer;text-align:left}
+#idxDrawer .more-filters:hover{color:var(--wave)}
+#idxDrawer .toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+#idxDrawer .toolbar .status{flex:1;min-width:120px;color:var(--dim);font-size:.82rem}
+#idxDrawer .toolbar .status.err{color:var(--bad)}
+#idxDrawer .toolbar button{padding:5px 10px;font-size:.85rem}
+#idxDrawer .section{font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:14px 0 6px;padding-top:4px}
+#idxDrawer .draft{background:linear-gradient(135deg,#2a3220 0%,#252526 60%);border:1px solid #4a5a30;border-radius:10px;padding:10px 12px;margin-bottom:8px}
+#idxDrawer .draft .badge{display:inline-block;font-size:.7rem;font-weight:700;background:var(--seg);color:#1a1400;border-radius:4px;padding:1px 6px;margin-bottom:4px}
+#idxDrawer .draft .title{font-weight:700;margin:2px 0 4px;overflow-wrap:anywhere}
+#idxDrawer .draft .meta{color:var(--dim);font-size:.82rem;margin-bottom:8px}
+#idxDrawer .actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#idxDrawer .actions button{padding:5px 10px;font-size:.85rem}
+#idxDrawer .note{border-top:1px solid #2d2d2d;padding:12px 0}
+#idxDrawer .note .title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+#idxDrawer .note .title{font-weight:700;line-height:1.3;overflow-wrap:anywhere}
+#idxDrawer .note .subject-tag{flex-shrink:0;font-size:.72rem;padding:2px 8px;border-radius:10px;border:1px solid var(--line);color:var(--seg)}
+#idxDrawer .note .meta{color:var(--dim);font-size:.82rem;margin:4px 0 6px}
+#idxDrawer .note .snip{font-size:.9rem;color:#ccc;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:8px;overflow-wrap:anywhere}
+#idxDrawer .note .snip mark{background:rgba(79,195,247,.25);color:var(--wave);border-radius:2px;padding:0 2px}
+#idxDrawer .note .actions a{color:var(--wave);text-decoration:none;font-size:.82rem}
+#idxDrawer .note .actions a:hover{text-decoration:underline}
+#idxDrawer .empty{text-align:center;padding:32px 16px;color:var(--dim)}
+#idxDrawer .empty .big{font-size:1.6rem;margin-bottom:8px}
+#idxDrawer .empty p{margin:0 0 12px;line-height:1.5}
+#idxDrawer .group-head{position:sticky;top:-12px;z-index:2;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 0 6px;margin:8px 0 0;font-size:.8rem;font-weight:700;color:var(--dim);display:flex;justify-content:space-between;align-items:center}
+#idxDrawer .group-head .cnt{font-weight:400}
 .hint.err{color:var(--bad)}
 dialog textarea{width:100%}
 .chip{display:inline-flex;gap:6px;align-items:center;background:#2b3a45;border:1px solid var(--line);border-radius:14px;padding:2px 4px 2px 10px;margin:2px 4px 2px 0;color:var(--text)}
@@ -115,18 +158,34 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
 <body>
 <button id="idxBtn" aria-label="Notes index" title="Search your notes">[ 🔍 Index ]</button>
 <aside id="idxDrawer" aria-hidden="true">
-  <div class="dlghead"><h2>Notes index</h2><button id="idxClose">Close</button></div>
-  <div class="row"><input id="nSearch" type="search" placeholder="Search all notes…" style="flex:1;min-width:0" autocomplete="off"></div>
-  <div class="row">
-    <select id="nYear" aria-label="Year"><option value="">Year</option></select>
-    <select id="nMonth" aria-label="Month"><option value="">Month</option></select>
-    <select id="nWeek" aria-label="Week"><option value="">Week</option></select>
-    <select id="nSubject" aria-label="Subject"><option value="">Subject</option></select>
-    <select id="nDay" aria-label="Day of week"><option value="">Day</option></select>
+  <div class="d-head"><h2>Notes</h2><button id="idxClose" class="ghost" aria-label="Close" title="Close">✕</button></div>
+  <div class="d-body">
+    <div class="search-wrap" id="searchWrap">
+      <span class="search-icon" aria-hidden="true">🔍</span>
+      <input type="search" id="nSearch" placeholder="Search notes…" autocomplete="off">
+      <button type="button" class="search-clear ghost" id="nClear">clear</button>
+    </div>
+    <div class="nchips" id="nChips"></div>
+    <div class="filters">
+      <select id="nSubject" aria-label="Subject"><option value="">All subjects</option></select>
+      <select id="nWhen" aria-label="When"><option value="" disabled hidden>Picked month</option><option value="today" selected>Today</option><option value="week">This week</option><option value="month">This month</option></select>
+    </div>
+    <div id="customSubjectRow" style="display:none;margin:-4px 0 10px"><input type="text" id="nCustom" placeholder="Type a custom subject…" autocomplete="off"></div>
+    <button type="button" class="more-filters" id="nMore">Show more filters ▾</button>
+    <div class="filters-advanced" id="nMoreBox">
+      <select id="nYear" aria-label="Year"><option value="">Year</option></select>
+      <select id="nMonth" aria-label="Month"><option value="">Month</option></select>
+      <select id="nWeek" aria-label="Week"><option value="">Week</option></select>
+      <select id="nDay" aria-label="Day of week"><option value="">Day</option></select>
+    </div>
+    <div class="toolbar">
+      <span class="status" id="nStatus"></span>
+      <button id="nDrafts">Drafts (0)</button>
+      <button id="nExternal">External AI…</button>
+      <button id="nRescan" class="ghost">Rescan</button>
+    </div>
+    <div id="nResults"></div>
   </div>
-  <div class="row"><button id="nRescan">Rescan Drive</button><button id="nDrafts">Drafts (0)</button><button id="nExternal">External AI…</button></div>
-  <div id="nStatus" class="hint"></div>
-  <div id="nResults"></div>
 </aside>
 <main>
   <div class="titlebar">
@@ -313,6 +372,7 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
     <div class="row"><label class="lbl" for="dTitle">Title</label><input id="dTitle" type="text" style="flex:1;min-width:200px"></div>
     <div class="row"><label class="lbl" for="dDate">Class date</label><input id="dDate" type="date"><span id="dDay" class="hint"></span></div>
     <div class="row"><label class="lbl" for="dSubject">Subject</label><select id="dSubject"></select><label class="lbl" for="dWeek">Week</label><select id="dWeek"></select></div>
+    <div class="row" id="dSubjectCustomRow" style="display:none"><label class="lbl" for="dSubjectCustom">Custom subject</label><input id="dSubjectCustom" type="text" style="flex:1;min-width:200px" placeholder="e.g. Research"></div>
     <div class="row"><label class="lbl" for="dAudio">Source audio</label><input id="dAudio" type="text" style="flex:1;min-width:200px"></div>
     <div class="row"><label class="lbl" for="dYt">YouTube link</label><input id="dYt" type="text" style="flex:1;min-width:200px"></div>
     <label class="lbl" for="dSummary">Summary &amp; key takeaways</label>
@@ -1653,13 +1713,14 @@ const GEM_TOOLS = [{functionDeclarations: [
      mode: {type: "STRING", enum: ["visualizer", "still"]}, youtube: {type: "BOOLEAN"}, drive_copy: {type: "BOOLEAN"}}, required: ["job_id"]}},
   {name: "list_runs", description: "Recent cloud runs and their status (queued, running, success, failure)."},
   {name: "propose_note", description: "Create a DRAFT study note for the user to review. Nothing is saved to the notes until the user presses Accept. Use only what is actually in the audio.",
-   parameters: {type: "OBJECT", properties: {title: {type: "STRING"}, subject: {type: "STRING", enum: ["math", "science", "mapeh", "filipino", "english"]},
+   parameters: {type: "OBJECT", properties: {title: {type: "STRING"}, subject: {type: "STRING", description: "Math, Science, English, Filipino, A.P., EsP, TLE, Computer, Music, Arts, P.E., Health, or a short custom subject name"},
      date: {type: "STRING", description: "The day the class happened, YYYY-MM-DD"}, summary_markdown: {type: "STRING", description: "Summary and key takeaways, in Markdown"},
      timestamps: {type: "ARRAY", items: {type: "OBJECT", properties: {time: {type: "STRING", description: "MM:SS or HH:MM:SS"}, text: {type: "STRING"}}, required: ["time", "text"]}},
      source_audio: {type: "STRING"}, youtube_url: {type: "STRING"}}, required: ["title", "subject", "date", "summary_markdown"]}},
-  {name: "search_notes", description: "Search the user's saved notes (read only). Returns the best matches with a short snippet.",
+  {name: "search_notes", description: "Search the user's saved notes (read only) by title, subject, date and a short preview. It searches the current month unless you pass year+month or date_from/date_to (at most 92 days at once). Returns the best matches with a short snippet and the range that was searched.",
    parameters: {type: "OBJECT", properties: {query: {type: "STRING"}, subject: {type: "STRING"}, year: {type: "INTEGER"}, month: {type: "INTEGER"}, week: {type: "STRING", description: "week_1 to week_6 (Monday-first weeks within the month)"},
-     day_of_week: {type: "INTEGER", description: "ISO: Monday = 1 ... Sunday = 7"}}}}
+     day_of_week: {type: "INTEGER", description: "ISO: Monday = 1 ... Sunday = 7"},
+     date_from: {type: "STRING", description: "YYYY-MM-DD"}, date_to: {type: "STRING", description: "YYYY-MM-DD"}}}}
 ]}];
 
 async function readMeta(jobId) {                           // the small _meta.json only
@@ -1749,9 +1810,16 @@ async function runTool(name, args, say) {
       return ok({draft_created: true, note: "The user will review it and press Accept. It is not saved to the notes yet."});
     }
     if (name === "search_notes") {
-      await loadNotesIndex();
-      const hits = searchNotes(args.query, {year: args.year, month: args.month, week: args.week, subject: args.subject, dow: args.day_of_week}).slice(0, 8);
-      return ok({count: hits.length, notes: hits.map(n => ({id: n.id, title: n.title, date: n.date, subject: n.subject, week: n.week, day_of_week: n.day_of_week, snippet: snippetOf(n, args.query)}))});
+      let from, to;
+      if (args.date_from || args.date_to) { from = String(args.date_from || args.date_to); to = String(args.date_to || args.date_from); }
+      else if (args.year && args.month) ({from, to} = monthRange(+args.year, +args.month));
+      else ({from, to} = presetRange("month"));
+      if (!dateInfo(from) || !dateInfo(to) || to < from) throw new Error("date_from and date_to must be real dates written YYYY-MM-DD, with date_to not before date_from.");
+      if (dayMs(to) - dayMs(from) > 92 * 86400000) throw new Error("Search at most 92 days at once. Use a narrower date_from / date_to.");
+      await token();
+      const {cards} = await loadRange(from, to);
+      const hits = filterCards(cards, args.query, {subject: args.subject, week: args.week, dow: args.day_of_week}).slice(0, 8);
+      return ok({searched: {from, to}, count: hits.length, notes: hits.map(n => ({id: n.id, title: n.title, date: n.date, subject: n.subject, week: n.week, day_of_week: dateInfo(n.date)?.iso || null, snippet: n.snippet}))});
     }
     if (name === "list_runs") {
       const r = await gh("/actions/runs?per_page=30");
@@ -1922,8 +1990,9 @@ $("#gemGo").onclick = async () => {
 };
 
 /* ------------------------------------------------------------- Notes: Drive archive, drafts, search */
-// Logger workspace/notes/years/2026/months/month_10/week_1/math.md  (+ video_links.md per week, + _index.json for search)
-const NOTE_SUBJECTS = ["math", "science", "mapeh", "filipino", "english"];
+// Logger workspace/notes/years/2026/months/month_10/week_1/Math.md  (+ video_links.md per week)
+// Search indexes: notes/indexes/YYYY-MM-DD.json (cards only) + notes/_index_meta.json (see the index section below)
+const NOTE_SUBJECTS = ["Math", "Science", "English", "Filipino", "A.P.", "EsP", "TLE", "Computer", "Music", "Arts", "P.E.", "Health"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];   // ISO: Monday = 1 ... Sunday = 7
 const DRAFTS_KEY = "logstudio.drafts";
@@ -1950,7 +2019,7 @@ function fmtStamps(t) {
   }).join("\n");
 }
 function renderNote(n) {
-  const di = dateInfo(n.date), dn = DAY_NAMES[di.iso - 1];
+  const di = dateInfo(n.date); if (!di) throw new Error("The note needs a real date written YYYY-MM-DD."); const dn = DAY_NAMES[di.iso - 1];
   const fm = [`id: ${yq(n.id)}`, `title: ${yq(n.title)}`, `date: ${yq(n.date)}`, `year: ${di.year}`, `month: ${di.month}`, `week: ${yq(n.week)}`,
               `day_of_week: ${di.iso}  # (${dn} = Day ${di.iso})`, `subject: ${yq(n.subject)}`, `youtube_url: ${yq(n.youtube_url)}`, `verified: true`].join("\n");
   const out = [`---\n${fm}\n---`, "", `## Session: ${n.title}`, `- **Date:** ${n.date} (Day ${di.iso} - ${dn})`];
@@ -1978,8 +2047,6 @@ function parseBlocks(text) {                                // one file can hold
   while ((m = re.exec(text))) starts.push({start: m.index, fmEnd: m.index + m[0].length, fm: fmParse(m[0].replace(/^---\r?\n/, "").replace(/\r?\n---\r?\n$/, ""))});
   return starts.map((b, i) => ({...b, end: i + 1 < starts.length ? starts[i + 1].start : text.length}));
 }
-const entryOf = (b, text, path, fileId) => ({id: b.fm.id, title: b.fm.title, date: b.fm.date, year: b.fm.year, month: b.fm.month, week: b.fm.week,
-  day_of_week: b.fm.day_of_week, subject: b.fm.subject, youtube_url: b.fm.youtube_url || "", verified: !!b.fm.verified, path, fileId, body: text.slice(b.fmEnd, b.end).trim()});
 
 /* --- Drive helpers for notes (only ever create, read and append; nothing here deletes) --- */
 const noteDirs = {};
@@ -2026,23 +2093,100 @@ async function appendText(parent, name, block) {            // existing text is 
   return driveWriteText(parent, name, old + "\n" + block + "\n", id);
 }
 
-/* --- the search index: notes/_index.json (small, read when the drawer opens; no SQLite download needed) --- */
-let NIDX = null;
+/* --- the search index, built for scale ---
+   notes/indexes/YYYY-MM-DD.json : one small file per day, cards only (no full text)
+   notes/_index_meta.json        : counts per day (with each day's file id) and per subject
+   The full text only ever lives in years/.../week_N/Subject.md and is read when a note is opened or corrected. */
+const IDX_VER = 2, SNIP_LEN = 260;
+const subjKey = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function canonSubject(s) {                                  // "math" / "Math" / "a.p." -> the standard label; anything else is a custom subject kept as typed
+  const raw = String(s || "").replace(/[\\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40), k = subjKey(raw);
+  return (k && NOTE_SUBJECTS.find(x => subjKey(x) === k)) || raw;
+}
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const dayMs = s => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+const msDay = ms => new Date(ms).toISOString().slice(0, 10);
+const addDays = (s, n) => msDay(dayMs(s) + n * 86400000);
+const monthRange = (y, m) => ({from: `${y}-${pad2(m)}-01`, to: msDay(Date.UTC(y, m, 0))});
+function presetRange(p) {                                   // Monday-first weeks, like the week folders
+  const t = todayStr();
+  if (p === "week") { const iso = new Date(dayMs(t)).getUTCDay() || 7; return {from: addDays(t, 1 - iso), to: addDays(t, 7 - iso)}; }
+  if (p === "month") { const [y, m] = t.split("-").map(Number); return monthRange(y, m); }
+  return {from: t, to: t};
+}
+function snippetFrom(md) {                                  // a short plain-text preview of the summary
+  let t = String(md || "").replace(/\r/g, "");
+  const h = /^#{2,4}\s*Summary[^\n]*\n/mi.exec(t);
+  if (h) { t = t.slice(h.index + h[0].length); const nx = /^#{2,4}\s/m.exec(t); if (nx) t = t.slice(0, nx.index); }
+  else t = t.replace(/^#{2,4}.*$/gm, "");
+  t = t.replace(/^\s*[-*+]\s+/gm, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*`>#]/g, "").replace(/\s+/g, " ").trim();
+  return t.length > SNIP_LEN ? t.slice(0, SNIP_LEN).trimEnd() + "…" : t;
+}
+function noteSnippet(body) {                                // the preview follows the newest "Updated summary" block, else the original summary
+  const t = String(body || ""), ms = [...t.matchAll(/^#### Update \[[^\n]*\]\s*\n/gm)];
+  if (!ms.length) return snippetFrom(t);
+  const m = ms[ms.length - 1]; return snippetFrom("### Summary\n" + t.slice(m.index + m[0].length));
+}
+const cardOf = (fm, snippet, path, fileId) => ({id: fm.id, title: fm.title, subject: canonSubject(fm.subject), date: fm.date, week: fm.week,
+  snippet, youtube_url: fm.youtube_url || "", path, fileId});
+
+let META = null, META_ID = null, IDXDIR = null;
+const DAYS = {};                                            // DAYS[date] = {cards, id}: only the days you have looked at
 async function notesDir() { return ensurePath(["notes"]); }
-async function loadNotesIndex(force) {
-  if (NIDX && !force) return NIDX;
-  const dir = await notesDir(), id = await findFileIn(dir, "_index.json");
-  if (id) { try { NIDX = JSON.parse(await driveText(id)); NIDX.fileId = id; return NIDX; } catch (e) {} }
-  NIDX = {version: 1, notes: [], fileId: null, missing: true};
-  return NIDX;
+const indexesDir = () => IDXDIR || (IDXDIR = ensurePath(["notes", "indexes"]).catch(e => { IDXDIR = null; throw e; }));
+const emptyMeta = () => ({version: IDX_VER, updated: "", total: 0, days: {}, subjects: {}});
+async function loadMeta(force) {
+  if (META && !force) return META;
+  const dir = await notesDir(); META_ID = await findFileIn(dir, "_index_meta.json"); META = null;
+  if (META_ID) { try { const m = JSON.parse(await driveText(META_ID)); if (m && m.days) META = {...emptyMeta(), ...m}; } catch (e) {} }
+  return META;
 }
-async function saveNotesIndex() {
-  const dir = await notesDir();
-  NIDX.fileId = await driveWriteText(dir, "_index.json", JSON.stringify({version: 1, updated: new Date().toISOString(), notes: NIDX.notes}), NIDX.fileId, "application/json");
-  delete NIDX.missing;
+async function saveMeta() {
+  META.updated = new Date().toISOString(); META.version = IDX_VER;
+  META_ID = await driveWriteText(await notesDir(), "_index_meta.json", JSON.stringify(META), META_ID, "application/json");
 }
-async function rescanNotes(say = () => {}) {                // rebuild the index from the Markdown files themselves
-  const dir = await notesDir(), notes = []; let files = 0;
+async function loadDay(date, force, probe) {
+  if (DAYS[date] && !force) return DAYS[date];
+  const info = META?.days?.[date]; let id = info?.id || null, cards = [];
+  if (!id && (info || probe)) id = await findFileIn(await indexesDir(), date + ".json");
+  if (id) { try { const j = JSON.parse(await driveText(id)); cards = Array.isArray(j.notes) ? j.notes : []; } catch (e) {} }
+  return (DAYS[date] = {cards, id});
+}
+async function saveDay(date, day) {
+  day.id = await driveWriteText(await indexesDir(), date + ".json", JSON.stringify({version: IDX_VER, date, updated: new Date().toISOString(), notes: day.cards}), day.id, "application/json");
+  DAYS[date] = day;
+}
+async function buildIndexes(entries, say = () => {}) {       // entries -> one file per day + the meta file
+  for (const k of Object.keys(DAYS)) delete DAYS[k];
+  const byDate = {}, seen = new Set(); let skipped = 0;
+  for (const e of entries) {
+    if (!e.id || seen.has(e.id)) continue;
+    if (!dateInfo(e.date)) { skipped++; continue; }
+    seen.add(e.id); (byDate[e.date] ||= []).push(e);
+  }
+  const dir = await indexesDir(), have = {}, meta = emptyMeta(), dates = Object.keys(byDate).sort(); let i = 0;
+  for (const f of await listFolder(dir)) have[f.name] = f.id;
+  for (const date of dates) {
+    say(`Writing the index… ${++i}/${dates.length} day(s)`);
+    const cards = byDate[date];
+    const id = await driveWriteText(dir, date + ".json", JSON.stringify({version: IDX_VER, date, updated: new Date().toISOString(), notes: cards}), have[date + ".json"] || null, "application/json");
+    meta.days[date] = {n: cards.length, id}; meta.total += cards.length;
+    for (const c of cards) meta.subjects[c.subject] = (meta.subjects[c.subject] || 0) + 1;
+    DAYS[date] = {cards, id};
+  }
+  META = meta; await saveMeta();
+  return {count: meta.total, skipped};
+}
+async function legacyEntries() {                            // the old single notes/_index.json, if there is one (it is read, never changed)
+  const id = await findFileIn(await notesDir(), "_index.json"); if (!id) return null;
+  try {
+    const j = JSON.parse(await driveText(id));
+    return (j.notes || []).map(n => ({id: n.id, title: n.title, date: n.date, subject: canonSubject(n.subject), week: n.week,
+      snippet: noteSnippet(n.body), youtube_url: n.youtube_url || "", path: n.path, fileId: n.fileId}));
+  } catch (e) { return null; }
+}
+async function rescanNotes(say = () => {}) {                // rebuild every index from the Markdown files themselves
+  const dir = await notesDir(), entries = []; let files = 0;
   const years = await findFolder("years", dir);
   for (const y of years ? (await listFolder(years)).filter(f => f.mimeType === FOLDER) : []) {
     const months = await findFolder("months", y.id);
@@ -2051,22 +2195,42 @@ async function rescanNotes(say = () => {}) {                // rebuild the index
         for (const f of (await listFolder(wk.id)).filter(f => /\.md$/i.test(f.name) && f.name !== "video_links.md")) {
           say(`Scanning… ${++files} file(s)`);
           const text = await driveText(f.id);
-          for (const b of parseBlocks(text)) if (b.fm.id) notes.push(entryOf(b, text, `${y.name}/${mo.name}/${wk.name}/${f.name}`, f.id));
+          for (const b of parseBlocks(text)) if (b.fm.id) entries.push(cardOf(b.fm, noteSnippet(text.slice(b.fmEnd, b.end)), `${y.name}/${mo.name}/${wk.name}/${f.name}`, f.id));
         }
   }
-  NIDX = {version: 1, notes, fileId: NIDX?.fileId || await findFileIn(dir, "_index.json")};
-  await saveNotesIndex();
-  return notes.length;
+  return (await buildIndexes(entries, say)).count;
 }
-function searchNotes(q, f = {}) {
-  const terms = String(q || "").toLowerCase().split(/\s+/).filter(Boolean), out = [];
-  for (const n of NIDX?.notes || []) {
-    if (f.year && n.year != f.year) continue;
-    if (f.month && n.month != f.month) continue;
+async function ensureIndex(say = () => {}) {               // meta missing = first run: convert the old index if there is one, else scan the files
+  if (await loadMeta()) return META;
+  say("Building the daily index (one time)…");
+  const legacy = await legacyEntries();
+  if (legacy) await buildIndexes(legacy, say); else await rescanNotes(say);
+  return META;
+}
+async function loadRange(from, to, say = () => {}) {        // reads only the days in [from, to] that have notes, 4 at a time
+  await ensureIndex(say);
+  const dates = Object.keys(META.days).filter(d => d >= from && d <= to).sort().reverse(), todo = dates.filter(d => !DAYS[d]); let done = 0;
+  await Promise.all(Array.from({length: Math.min(4, todo.length)}, async () => {
+    while (todo.length) { const d = todo.shift(); await loadDay(d); say(`Loading… ${++done}/${done + todo.length} day(s)`); }
+  }));
+  const cards = []; for (const d of dates) for (const c of DAYS[d].cards) cards.push(c);
+  return {cards, days: dates.length};
+}
+async function pathFileId(path) {                           // finds a note file from its path, without creating any folder
+  const [y, mo, wk, file] = String(path || "").split("/"); if (!file) return null;
+  let p = await ensurePath(["notes", "years"]);
+  for (const name of [y, "months", mo, wk]) { p = await findFolder(name, p); if (!p) return null; }
+  return findFileIn(p, file);
+}
+const qTerms = q => String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+function filterCards(cards, q, f = {}) {                    // filters only what is already loaded; matches title, subject, date and the snippet
+  const terms = qTerms(q), out = [], sk = f.subject ? subjKey(f.subject) : "", like = String(f.like || "").toLowerCase(), lk = subjKey(like);
+  for (const n of cards) {
+    if (sk && subjKey(n.subject) !== sk) continue;
+    if (like && !(lk ? subjKey(n.subject).includes(lk) : String(n.subject).toLowerCase().includes(like))) continue;
     if (f.week && n.week !== f.week) continue;
-    if (f.subject && n.subject !== f.subject) continue;
-    if (f.dow && n.day_of_week != f.dow) continue;
-    const title = String(n.title || "").toLowerCase(), head = `${title} ${n.subject} ${n.date}`, body = String(n.body || "").toLowerCase();
+    if (f.dow) { const di = dateInfo(n.date); if (!di || di.iso != f.dow) continue; }
+    const title = String(n.title || "").toLowerCase(), head = `${title} ${String(n.subject).toLowerCase()} ${n.date}`, body = String(n.snippet || "").toLowerCase();
     let ok = true, score = 0;
     for (const t of terms) {
       const inT = title.includes(t), inH = head.includes(t), inB = body.includes(t);
@@ -2075,22 +2239,18 @@ function searchNotes(q, f = {}) {
     }
     if (ok) out.push({n, score});
   }
-  out.sort((a, b) => b.score - a.score || String(b.n.date).localeCompare(String(a.n.date)));
-  return out.slice(0, 60).map(x => x.n);
-}
-function snippetOf(n, q) {
-  const body = String(n.body || "").replace(/^## Session:.*$/m, "").replace(/\s+/g, " ").trim(), t = String(q || "").toLowerCase().split(/\s+/).filter(Boolean)[0];
-  const i = t ? body.toLowerCase().indexOf(t) : -1, a = Math.max(0, i - 60);
-  return (a ? "…" : "") + body.slice(a, a + 200) + (body.length > a + 200 ? "…" : "");
+  out.sort((a, b) => b.score - a.score || String(b.n.date).localeCompare(String(a.n.date)) || String(b.n.id).localeCompare(String(a.n.id), undefined, {numeric: true}));
+  return out.map(x => x.n);
 }
 
 /* --- drafts: AI output is never saved until you accept it --- */
 function makeDraft(f, origin) {
-  const title = String(f.title || "").trim(), date = String(f.date || "").trim(), subject = String(f.subject || "").trim().toLowerCase();
+  const title = String(f.title || "").trim(), date = String(f.date || "").trim(), subject = canonSubject(f.subject);
   if (!title) throw new Error("The note needs a title.");
   const di = dateInfo(date);
   if (!di) throw new Error("The date must be a real date written YYYY-MM-DD.");
-  if (!NOTE_SUBJECTS.includes(subject)) throw new Error("The subject must be one of: " + NOTE_SUBJECTS.join(", ") + ".");
+  if (!subjKey(subject)) throw new Error("The note needs a subject, for example: " + NOTE_SUBJECTS.join(", ") + ", or your own.");
+  if (subjKey(subject) === "videolinks") throw new Error("Choose a different subject name.");
   const summary = String(f.summary || "").trim();
   if (!summary) throw new Error("The note needs a summary.");
   const d = {did: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: title.slice(0, 200), date, subject, week: di.week,
@@ -2122,7 +2282,7 @@ Reply with ONLY the note below, in exactly this format, with nothing before or a
 ---
 title: "<short descriptive title>"
 date: "YYYY-MM-DD"
-subject: "<one of: ${NOTE_SUBJECTS.join(", ")}>"
+subject: "<one of: ${NOTE_SUBJECTS.join(", ")} - or a short subject name of your own>"
 youtube_url: "<link to the video, or an empty string>"
 ---
 
@@ -2134,12 +2294,17 @@ youtube_url: "<link to the video, or an empty string>"
 
 Rules: "date" is the day the class happened. Use only what is in the recording. If something is unclear, write "(unclear)" instead of guessing. Do not invent timestamps, formulas or links.`;
 
+const draftSubject = () => canonSubject($("#dSubject").value === "__custom" ? $("#dSubjectCustom").value : $("#dSubject").value);
+function syncDraftSubject() { const c = $("#dSubject").value === "__custom"; $("#dSubjectCustomRow").style.display = c ? "" : "none"; if (c) $("#dSubjectCustom").focus(); }
+$("#dSubject").addEventListener("change", syncDraftSubject);
 function openDraft(did) {
   const d = drafts().find(x => x.did === did); if (!d) return;
   const dlg = $("#draftDlg"); dlg.dataset.did = did;
-  $("#dSubject").innerHTML = NOTE_SUBJECTS.map(x => `<option>${x}</option>`).join("");
+  { const cur = canonSubject(d.subject), sel = $("#dSubject"); sel.textContent = "";
+    for (const x of cur && !NOTE_SUBJECTS.includes(cur) ? [...NOTE_SUBJECTS, cur] : NOTE_SUBJECTS) sel.append(new Option(x, x));
+    sel.append(new Option("Custom…", "__custom")); }
   $("#dWeek").innerHTML = [1, 2, 3, 4, 5, 6].map(n => `<option>week_${n}</option>`).join("");
-  $("#dTitle").value = d.title; $("#dDate").value = d.date; $("#dSubject").value = d.subject; $("#dWeek").value = d.week;
+  $("#dTitle").value = d.title; $("#dDate").value = d.date; $("#dSubject").value = canonSubject(d.subject) || NOTE_SUBJECTS[0]; $("#dSubjectCustom").value = ""; syncDraftSubject(); $("#dWeek").value = d.week;
   $("#dAudio").value = d.source_audio; $("#dYt").value = d.youtube_url; $("#dSummary").value = d.summary; $("#dStamps").value = d.timestamps;
   $("#dInfo").textContent = d.origin === "gemini" ? "Written by Gemini. Check it against the recording before accepting." : "Pasted from an outside AI. Check it before accepting.";
   $("#dWarn").textContent = d.warn || ""; dayHint(); dlg.showModal();
@@ -2154,32 +2319,44 @@ $("#dDiscard").onclick = () => {                           // only a not-yet-sav
 $("#dAccept").onclick = async () => {
   const dlg = $("#draftDlg"), did = dlg.dataset.did;
   try {
-    const f = {title: $("#dTitle").value.trim(), date: $("#dDate").value.trim(), subject: $("#dSubject").value, summary: $("#dSummary").value.trim(),
+    const f = {title: $("#dTitle").value.trim(), date: $("#dDate").value.trim(), subject: draftSubject(), summary: $("#dSummary").value.trim(),
                timestamps: $("#dStamps").value, source_audio: $("#dAudio").value.trim(), youtube_url: $("#dYt").value.trim(), week: $("#dWeek").value};
     const di = dateInfo(f.date);
-    if (!f.title || !di || !f.summary || !NOTE_SUBJECTS.includes(f.subject)) throw new Error("Fill in the title, a valid date, the subject and the summary.");
+    if (!f.title || !di || !f.summary || !subjKey(f.subject)) throw new Error("Fill in the title, a valid date, the subject and the summary.");
     $("#dAccept").disabled = true; $("#dWarn").textContent = "Saving…";
-    await acceptNote(f, di); 
-    saveDrafts(drafts().filter(x => x.did !== did)); dlg.close(); renderDraftList();
-    chatNote("Saved to your notes."); idxStatus("Saved to your notes.");
+    const warn = await acceptNote(f, di);
+    saveDrafts(drafts().filter(x => x.did !== did)); dlg.close();
+    chatNote(warn || "Saved to your notes.", !!warn);
+    if ($("#idxDrawer").classList.contains("open")) { ND.flash = warn || "Saved to your notes."; loadDrawer(); } else renderResults();
   } catch (e) { $("#dWarn").textContent = e.message || String(e); }
   finally { $("#dAccept").disabled = false; }
 };
-async function acceptNote(f, di) {
+async function acceptNote(f, di) {                          // returns "" or a warning when the note was saved but the index could not be updated
   await token();
-  const idx = await loadNotesIndex(true);                   // fresh copy, in case another device saved meanwhile
-  const id = `summary_${f.date.replace(/-/g, "")}_${pad2(idx.notes.filter(n => n.date === f.date).length + 1)}`;
+  await ensureIndex();
+  await loadMeta(true);                                     // fresh copy, in case another device saved meanwhile
+  if (!META) await ensureIndex();
+  const day = await loadDay(f.date, true, true), used = new Set(day.cards.map(c => c.id)), sub = canonSubject(f.subject);
+  let k = day.cards.length + 1, id;
+  do { id = `summary_${f.date.replace(/-/g, "")}_${pad2(k++)}`; } while (used.has(id));
   const dir = await ensurePath(["notes", "years", String(di.year), "months", "month_" + pad2(di.month), f.week]);
-  const block = renderNote({...f, id}), name = f.subject + ".md";
+  const block = renderNote({...f, id, subject: sub});
+  const same = (await listFolder(dir)).find(x => x.mimeType !== FOLDER && x.name.toLowerCase() === (sub + ".md").toLowerCase());
+  const name = same ? same.name : sub + ".md";               // reuse an older math.md instead of starting a second Math.md
   const fileId = await appendText(dir, name, block);
   if (f.youtube_url) {                                      // weekly list of video links
     const lid = await findFileIn(dir, "video_links.md");
-    const line = `- ${f.date} · ${f.subject} · [${f.title.replace(/[\[\]]/g, "")}](${f.youtube_url})`;
+    const line = `- ${f.date} · ${sub} · [${f.title.replace(/[\[\]]/g, "")}](${f.youtube_url})`;
     if (!lid || !(await driveText(lid)).includes(f.youtube_url)) await appendText(dir, "video_links.md", line);
   }
-  const b = parseBlocks(block)[0];
-  idx.notes.push(entryOf(b, block, `${di.year}/month_${pad2(di.month)}/${f.week}/${name}`, fileId));
-  await saveNotesIndex();
+  try {
+    const b = parseBlocks(block)[0];
+    day.cards.push(cardOf(b.fm, snippetFrom(f.summary), `${di.year}/month_${pad2(di.month)}/${f.week}/${name}`, fileId));
+    await saveDay(f.date, day);
+    META.days[f.date] = {n: day.cards.length, id: day.id}; META.total = (META.total || 0) + 1; META.subjects[sub] = (META.subjects[sub] || 0) + 1;
+    await saveMeta();
+    return "";
+  } catch (e) { return "Saved to your notes, but the search index could not be updated (" + (e.message || e) + "). Tap Rescan to fix it."; }
 }
 
 /* --- correcting a saved note: lines are only ever added --- */
@@ -2203,10 +2380,12 @@ function insertUpdate(text, id, md) {
 let corrNote = null;
 async function openCorrect(n) {
   try {
-    await token(); const text = await driveText(n.fileId), b = parseBlocks(text).find(x => x.fm.id === n.id);
-    if (!b) throw new Error("That note was not found in its file. Try Rescan Drive.");
-    corrNote = n; $("#cView").value = text.slice(b.start, b.end).trim(); $("#cText").value = ""; $("#cUpdate").value = ""; $("#cNote").textContent = "";
-    $("#cInfo").textContent = `${n.title} · ${n.date} · ${n.subject}`; $("#cDrive").href = `https://drive.google.com/file/d/${n.fileId}/view`;
+    await token(); const fileId = n.fileId || await pathFileId(n.path);
+    if (!fileId) throw new Error("That note's file was not found. Try Rescan.");
+    const text = await driveText(fileId), b = parseBlocks(text).find(x => x.fm.id === n.id);   // the full text is read only now
+    if (!b) throw new Error("That note was not found in its file. Try Rescan.");
+    corrNote = {...n, fileId}; $("#cView").value = text.slice(b.start, b.end).trim(); $("#cText").value = ""; $("#cUpdate").value = ""; $("#cNote").textContent = "";
+    $("#cInfo").textContent = `${n.title} · ${n.date} · ${n.subject}`; $("#cDrive").href = `https://drive.google.com/file/d/${fileId}/view`;
     $("#corrDlg").showModal();
   } catch (e) { idxStatus(e.message || String(e), true); }
 }
@@ -2223,71 +2402,184 @@ $("#cSave").onclick = async () => {
       text = r.text;
     }
     await driveWriteText(null, null, text, corrNote.fileId);
-    const b = parseBlocks(text).find(x => x.fm.id === corrNote.id), idx = await loadNotesIndex(true), e = idx.notes.find(x => x.id === corrNote.id);
-    if (e && b) { e.body = text.slice(b.fmEnd, b.end).trim(); await saveNotesIndex(); }
+    try {                                                   // keep the card preview in the day index in step with the note
+      const nb = parseBlocks(text).find(x => x.fm.id === corrNote.id), day = await loadDay(corrNote.date), card = day.cards.find(c => c.id === corrNote.id);
+      const snip = nb && noteSnippet(text.slice(nb.fmEnd, nb.end));
+      if (card && snip && card.snippet !== snip) { card.snippet = snip; await saveDay(corrNote.date, day); }
+    } catch (e) { idxStatus("Correction saved, but the preview could not be refreshed: " + (e.message || e), true); }
     $("#corrDlg").close(); idxStatus("Correction added."); renderResults();
   } catch (e) { $("#cNote").textContent = e.message || String(e); }
   finally { $("#cSave").disabled = false; }
 };
 
-/* --- the top-left drawer --- */
-const idxStatus = (t, bad) => { const n = $("#nStatus"); n.textContent = t || ""; n.className = "hint" + (bad ? " err" : ""); };
+/* --- the top-left drawer: loads only the date range you are looking at (Today by default) --- */
+const PAGE = 60;
+const ND = {preset: "today", cards: [], seq: 0, shown: PAGE, label: "Today", loading: false, flash: ""};
+let searchTimer = 0;
+const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const idxStatus = (t, bad) => { const n = $("#nStatus"); n.textContent = t || ""; n.className = "status" + (bad ? " err" : ""); };
+const subjFilter = () => { const v = $("#nSubject").value; return v === "__custom" ? {like: $("#nCustom").value.trim()} : {exact: v}; };
+function rangeNow() {
+  const y = $("#nYear").value, m = $("#nMonth").value;
+  if (m) { const yy = +y || new Date().getFullYear(); return {...monthRange(yy, +m), label: `${MONTH_NAMES[m - 1].slice(0, 3)} ${yy}`, picked: true}; }
+  return {...presetRange(ND.preset), label: {today: "Today", week: "This week", month: "This month"}[ND.preset], picked: false};
+}
 function fillFilters() {
-  const keep = id => $("#" + id).value;
-  const set = (id, first, opts) => { const v = keep(id); $("#" + id).innerHTML = `<option value="">${first}</option>` + opts.map(([val, txt]) => `<option value="${val}">${txt}</option>`).join(""); $("#" + id).value = v; };
-  const years = [...new Set([...(NIDX?.notes || []).map(n => n.year), new Date().getFullYear()])].filter(Boolean).sort();
-  set("nYear", "Year", years.map(y => [y, y]));
+  const set = (id, first, opts) => {
+    const e = $("#" + id), v = e.value; e.textContent = ""; e.append(new Option(first, ""));
+    for (const [val, txt] of opts) e.append(new Option(txt, val));
+    e.value = v; if (e.value !== v) e.value = "";
+  };
+  const thisYear = new Date().getFullYear();
+  set("nYear", "Year", [...new Set([...Object.keys(META?.days || {}).map(d => +d.slice(0, 4)), thisYear])].sort((a, b) => b - a).map(y => [y, y]));
   set("nMonth", "Month", MONTH_NAMES.map((m, i) => [i + 1, m]));
   set("nWeek", "Week", [1, 2, 3, 4, 5, 6].map(n => ["week_" + n, "week_" + n]));
-  set("nSubject", "Subject", NOTE_SUBJECTS.map(x => [x, x]));
-  set("nDay", "Day", DAY_NAMES.map((d, i) => [i + 1, `${i + 1} - ${d}`]));
+  set("nDay", "Day", DAY_NAMES.map((d, i) => [i + 1, `${i + 1} – ${d}`]));
+  const custom = [...new Set([...Object.keys(META?.subjects || {}), ...ND.cards.map(c => c.subject)])].filter(s => s && !NOTE_SUBJECTS.includes(s)).sort();
+  set("nSubject", "All subjects", [...NOTE_SUBJECTS, ...custom, "__custom"].map(s => [s, s === "__custom" ? "Custom…" : s]));
 }
-let searchTimer = 0;
-function renderResults() {
-  const q = $("#nSearch").value, box = $("#nResults"); box.textContent = "";
-  const list = searchNotes(q, {year: $("#nYear").value, month: $("#nMonth").value, week: $("#nWeek").value, subject: $("#nSubject").value, dow: $("#nDay").value});
-  if (!NIDX?.notes.length) return idxStatus(NIDX?.missing ? "No notes yet. Accept a draft, or tap Rescan Drive." : "No notes yet.");
-  idxStatus(`${list.length} note(s)${list.length === 60 ? " (first 60)" : ""}`);
-  for (const n of list) {
-    const d = document.createElement("div"); d.className = "nres";
-    const t = document.createElement("b"); t.textContent = n.title; d.append(t);
-    const m = document.createElement("div"); m.className = "meta"; m.textContent = `${n.date} (Day ${n.day_of_week} - ${DAY_NAMES[(n.day_of_week || 1) - 1]}) · ${n.subject} · ${n.week} · ${MONTH_NAMES[(n.month || 1) - 1]} ${n.year}`; d.append(m);
-    const sn = document.createElement("div"); sn.className = "snip"; sn.textContent = snippetOf(n, q); d.append(sn);
-    if (/^https?:\/\//.test(n.youtube_url || "")) { const a = document.createElement("a"); a.href = n.youtube_url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Watch video"; d.append(a); }
-    const eb = document.createElement("button"); eb.textContent = "[ Edit / Correct ]"; eb.onclick = () => openCorrect(n); d.append(eb);
-    box.append(d);
+const syncCustom = () => { $("#customSubjectRow").style.display = $("#nSubject").value === "__custom" ? "block" : "none"; };
+const syncClear = () => $("#searchWrap").classList.toggle("has-query", !!$("#nSearch").value.trim());
+function toggleMore() { const o = $("#nMoreBox").classList.toggle("open"); $("#nMore").textContent = o ? "Hide extra filters ▴" : "Show more filters ▾"; }
+function renderChips() {
+  const box = $("#nChips"); box.textContent = "";
+  const r = rangeNow(), add = (txt, act, on, x) => {
+    const c = mk("span", "nchip" + (on ? " on" : ""), txt); c.dataset.act = act;
+    if (x) c.append(mk("span", "x", " ×"));
+    box.append(c);
+  };
+  for (const [k, t] of [["today", "Today"], ["week", "This week"], ["month", "This month"]]) add(t, "p:" + k, !r.picked && ND.preset === k);
+  if (r.picked) add(r.label, "unpick", true, true);
+  const sf = subjFilter();
+  if (sf.like || sf.exact) add(sf.like ? `“${sf.like}”` : sf.exact, "nosubj", true, true);
+  else {
+    const n = {}; for (const c of ND.cards) n[c.subject] = (n[c.subject] || 0) + 1;
+    for (const s of Object.keys(n).sort((a, b) => n[b] - n[a]).slice(0, 3)) add(s, "s:" + s, false);
   }
+  add("+ filter", "more", false);
 }
-function renderDraftList() {
-  const a = drafts(); updateDraftButtons();
-  if (!a.length) return renderResults();
-  const box = $("#nResults"); box.textContent = ""; idxStatus(`${a.length} draft(s) waiting for your review. Nothing is saved yet.`);
-  for (const d of a) {
-    const el = document.createElement("div"); el.className = "nres";
-    const t = document.createElement("b"); t.textContent = d.title; el.append(t);
-    const m = document.createElement("div"); m.className = "meta"; m.textContent = `${d.date} · ${d.subject} · ${d.origin === "gemini" ? "from Gemini" : "from an outside AI"} · DRAFT`; el.append(m);
-    const b = document.createElement("button"); b.textContent = "Review"; b.onclick = () => openDraft(d.did); el.append(b); box.append(el);
+function setPreset(p) { ND.preset = p; $("#nYear").value = ""; $("#nMonth").value = ""; loadDrawer(); }
+function onMonthPick() {
+  const y = $("#nYear").value, m = $("#nMonth").value, now = new Date();
+  if (!m && y) {                                           // a whole year is too big to load: use its latest month that has notes
+    const ds = Object.keys(META?.days || {}).filter(d => d.startsWith(y + "-")).sort();
+    $("#nMonth").value = String(ds.length ? +ds[ds.length - 1].slice(5, 7) : (+y === now.getFullYear() ? now.getMonth() + 1 : 1));
+  } else if (m && !y) $("#nYear").value = String(now.getFullYear());
+  loadDrawer();
+}
+function markText(node, text, terms) {
+  const t = String(text || "");
+  if (!terms.length) { node.textContent = t; return; }
+  const re = new RegExp("(" + terms.map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "ig");
+  t.split(re).forEach((part, i) => { if (i % 2) node.append(mk("mark", null, part)); else if (part) node.append(part); });
+}
+function fmtDay(date) { const di = dateInfo(date); return di ? `${DAY_NAMES[di.iso - 1].slice(0, 3)} ${di.day} ${MONTH_NAMES[di.month - 1]} ${di.year}` : date; }
+function noteCard(n, terms) {
+  const di = dateInfo(n.date), c = mk("article", "note"), tr = mk("div", "title-row");
+  tr.append(mk("div", "title", n.title), mk("span", "subject-tag", n.subject)); c.append(tr);
+  c.append(mk("div", "meta", di ? `${DAY_NAMES[di.iso - 1].slice(0, 3)} ${di.day} ${MONTH_NAMES[di.month - 1].slice(0, 3)} · Day ${di.iso} · ${n.week} · ${di.year}` : String(n.date)));
+  const sn = mk("div", "snip"); markText(sn, n.snippet, terms); c.append(sn);
+  const a = mk("div", "actions");
+  if (/^https?:\/\//.test(n.youtube_url || "")) { const l = mk("a", null, "Watch video"); l.href = n.youtube_url; l.target = "_blank"; l.rel = "noopener"; a.append(l); }
+  const b = mk("button", null, "Edit / Correct"); b.onclick = () => openCorrect(n); a.append(b); c.append(a);
+  return c;
+}
+function emptyBox(msg, btnText, onClick) {
+  const e = mk("div", "empty"); e.append(mk("div", "big", "📝"), mk("p", null, msg));
+  if (btnText) { const b = mk("button", "primary", btnText); b.onclick = onClick; e.append(b); }
+  return e;
+}
+function renderResults() {                                  // drafts on top, then the loaded range filtered by search / subject / week / day
+  const box = $("#nResults"); box.textContent = ""; updateDraftButtons(); renderChips();
+  const dr = drafts();
+  if (dr.length) {
+    const sec = mk("div", "section", "Needs review"); sec.id = "nDraftSec"; box.append(sec);
+    for (const d of dr) {
+      const c = mk("div", "draft"), a = mk("div", "actions"), rv = mk("button", "primary", "Review"), dc = mk("button", "danger", "Discard");
+      c.append(mk("div", "badge", "DRAFT · " + (d.origin === "gemini" ? "from Gemini" : "from an outside AI")), mk("div", "title", d.title), mk("div", "meta", `${d.date} · ${d.subject} · ${d.week}`));
+      rv.onclick = () => openDraft(d.did);
+      dc.onclick = () => { if (!confirm("Discard this draft? It has not been saved to your notes.")) return; saveDrafts(drafts().filter(x => x.did !== d.did)); renderResults(); };
+      a.append(rv, dc); c.append(a); box.append(c);
+    }
   }
+  const q = $("#nSearch").value, sf = subjFilter(), f = {subject: sf.exact, like: sf.like, week: $("#nWeek").value, dow: $("#nDay").value};
+  const list = filterCards(ND.cards, q, f), terms = qTerms(q);
+  if (!ND.loading) {
+    const fl = ND.flash; ND.flash = "";
+    idxStatus(`${list.length} note${list.length === 1 ? "" : "s"} · ${ND.label}${dr.length ? ` · ${dr.length} draft${dr.length > 1 ? "s" : ""}` : ""}${fl ? " · " + fl : ""}`);
+    if (!ND.cards.length) {
+      const r = rangeNow(), when = r.picked ? "in " + r.label : ND.label.toLowerCase();
+      if (META && !META.total) box.append(emptyBox("No notes yet. Accept a draft, or tap Rescan."));
+      else if (r.picked) box.append(emptyBox(`No notes ${when}.`));
+      else box.append(emptyBox(`No notes ${when}.`, ND.preset === "today" ? "Show this week" : "Show this month", () => setPreset(ND.preset === "today" ? "week" : "month")));
+    } else if (!list.length) {
+      box.append(emptyBox("No notes match these filters.", "Clear filters", () => {
+        $("#nSearch").value = ""; $("#nSubject").value = ""; $("#nCustom").value = ""; $("#nWeek").value = ""; $("#nDay").value = ""; syncCustom(); syncClear(); renderResults();
+      }));
+    }
+  }
+  if (!list.length) return;
+  box.append(mk("div", "section", "Saved notes"));
+  const counts = {}; for (const n of list) counts[n.date] = (counts[n.date] || 0) + 1;
+  let last = "";
+  for (const n of list.slice(0, ND.shown)) {
+    if (!terms.length && n.date !== last) {                 // day headers only when the list is in date order (not while searching)
+      last = n.date; const g = mk("div", "group-head"); g.append(mk("span", null, fmtDay(n.date)), mk("span", "cnt", `${counts[n.date]} note${counts[n.date] === 1 ? "" : "s"}`)); box.append(g);
+    }
+    box.append(noteCard(n, terms));
+  }
+  if (list.length > ND.shown) { const m = mk("button", null, `Show more (${list.length - ND.shown} left)`); m.style.margin = "10px 0"; m.onclick = () => { ND.shown += PAGE; renderResults(); }; box.append(m); }
+}
+function renderDraftList() { updateDraftButtons(); renderResults(); }
+async function loadDrawer(fresh) {
+  const seq = ++ND.seq, r = rangeNow();
+  $("#nWhen").value = r.picked ? "" : ND.preset; ND.label = r.label; ND.shown = PAGE; ND.loading = true; renderChips();
+  try {
+    idxStatus(`Loading ${r.label}…`);
+    if (fresh) {                                           // another device may have saved since: re-read the small meta file, drop days that changed
+      await token(); const had = META; await loadMeta(true);
+      if (META && had) for (const d of Object.keys(DAYS)) if (META.days[d]?.n !== DAYS[d].cards.length) delete DAYS[d];
+    }
+    const out = await loadRange(r.from, r.to, t => { if (seq === ND.seq) idxStatus(t); });
+    if (seq !== ND.seq) return;
+    ND.cards = out.cards; ND.loading = false; fillFilters(); renderResults();
+  } catch (e) { if (seq === ND.seq) { ND.loading = false; idxStatus(e.message || String(e), true); } }
 }
 async function openDrawer() {
   $("#idxDrawer").classList.add("open"); $("#idxDrawer").setAttribute("aria-hidden", "false");
-  if (!needCfg()) return;
-  try {
-    idxStatus("Loading the index…"); await token();
-    const had = NIDX; await loadNotesIndex();
-    if (!had && NIDX.missing) { const n = await rescanNotes(idxStatus); idxStatus(`Index built from Drive: ${n} note(s).`); }
-    fillFilters(); updateDraftButtons(); renderResults();
-  } catch (e) { idxStatus(e.message || String(e), true); }
+  ND.loading = !!(cfg.repo && cfg.pat && cfg.gid); renderResults();       // drafts show at once, notes follow
+  if (!needCfg()) { ND.loading = false; return; }
+  await loadDrawer(true);
 }
 const closeDrawer = () => { $("#idxDrawer").classList.remove("open"); $("#idxDrawer").setAttribute("aria-hidden", "true"); };
 $("#idxBtn").onclick = () => $("#idxDrawer").classList.contains("open") ? closeDrawer() : openDrawer();
 $("#idxClose").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
-for (const id of ["nYear", "nMonth", "nWeek", "nSubject", "nDay"]) $("#" + id).onchange = renderResults;
-$("#nSearch").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderResults, 120); };   // real-time as you type
-$("#nRescan").onclick = async () => { try { await token(); idxStatus("Scanning…"); const n = await rescanNotes(idxStatus); fillFilters(); renderResults(); idxStatus(`Rescanned: ${n} note(s).`); } catch (e) { idxStatus(e.message || String(e), true); } };
-$("#nDrafts").onclick = () => renderDraftList();
-$("#chatDrafts").onclick = () => { openDrawer(); renderDraftList(); };
+$("#nChips").addEventListener("click", e => {
+  const c = e.target.closest(".nchip"); if (!c) return; const a = c.dataset.act;
+  if (a.startsWith("p:")) return setPreset(a.slice(2));
+  if (a === "unpick") { $("#nYear").value = ""; $("#nMonth").value = ""; return loadDrawer(); }
+  if (a === "nosubj") { $("#nSubject").value = ""; $("#nCustom").value = ""; syncCustom(); return renderResults(); }
+  if (a.startsWith("s:")) { $("#nSubject").value = a.slice(2); syncCustom(); return renderResults(); }
+  if (a === "more") toggleMore();
+});
+$("#nMore").onclick = toggleMore;
+$("#nWhen").onchange = () => { if ($("#nWhen").value) setPreset($("#nWhen").value); };
+$("#nYear").onchange = onMonthPick; $("#nMonth").onchange = onMonthPick;
+$("#nWeek").onchange = renderResults; $("#nDay").onchange = renderResults;
+$("#nSubject").onchange = () => { syncCustom(); if ($("#nSubject").value === "__custom") $("#nCustom").focus(); ND.shown = PAGE; renderResults(); };
+const later = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { ND.shown = PAGE; renderResults(); }, 120); };
+$("#nCustom").oninput = later;
+$("#nSearch").oninput = () => { syncClear(); later(); };      // real-time as you type, over the loaded range only
+$("#nClear").onclick = () => { $("#nSearch").value = ""; syncClear(); ND.shown = PAGE; renderResults(); $("#nSearch").focus(); };
+$("#nRescan").onclick = async () => {
+  try {
+    await token(); ND.loading = true; idxStatus("Scanning…");
+    const n = await rescanNotes(idxStatus); ND.flash = `Rescanned: ${n} note(s).`; await loadDrawer();
+  } catch (e) { ND.loading = false; idxStatus(e.message || String(e), true); }
+};
+$("#nDrafts").onclick = () => { const s = $("#nDraftSec"); if (s) s.scrollIntoView?.({block: "start"}); else idxStatus("No drafts waiting for review."); };
+$("#chatDrafts").onclick = () => { openDrawer(); $("#nDraftSec")?.scrollIntoView?.({block: "start"}); };
 $("#nExternal").onclick = () => { $("#extPrompt").value = externalPrompt(); $("#extNote").textContent = ""; $("#extDlg").showModal(); };
 $("#extClose").onclick = () => $("#extDlg").close();
 $("#extCopy").onclick = () => { $("#extPrompt").select(); navigator.clipboard?.writeText($("#extPrompt").value).then(() => { $("#extNote").textContent = "Prompt copied."; }, () => { $("#extNote").textContent = "Select the text and copy it."; }); };
