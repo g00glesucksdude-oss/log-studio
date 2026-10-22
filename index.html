@@ -80,6 +80,19 @@ textarea:focus{outline:2px solid var(--wave);outline-offset:1px}
 .msg.model{background:var(--plot);align-self:stretch}
 .msg.tool{align-self:stretch;color:var(--dim);font-size:.82rem;border-style:dashed;padding:5px 9px}
 .msg .copy{margin-top:6px;font-size:.8rem;padding:3px 8px}
+#idxBtn{position:fixed;top:15px;left:15px;z-index:60;background:transparent;border:1px solid transparent;color:var(--dim);padding:3px 6px;font-size:.85rem}
+#idxBtn:hover:not(:disabled){background:rgba(60,60,60,.6);color:var(--text)}
+.titlebar h1{padding-left:86px}
+#idxDrawer{position:fixed;top:0;left:0;bottom:0;width:min(94vw,440px);background:var(--panel);border-right:1px solid var(--line);z-index:70;transform:translateX(-105%);transition:transform .2s;overflow:auto;padding:max(12px,env(safe-area-inset-top)) 12px 24px;visibility:hidden}
+#idxDrawer.open{transform:none;visibility:visible}
+.nres{border-top:1px solid #2d2d2d;padding:8px 0}
+.nres .meta{color:var(--dim);font-size:.82rem}
+.nres .snip{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.nres button,.nres a{margin-right:8px}
+.hint.err{color:var(--bad)}
+dialog textarea{width:100%}
+.chip{display:inline-flex;gap:6px;align-items:center;background:#2b3a45;border:1px solid var(--line);border-radius:14px;padding:2px 4px 2px 10px;margin:2px 4px 2px 0;color:var(--text)}
+.chip button{padding:0 7px;border-radius:10px;line-height:1.4}
 #gemList label{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid #2d2d2d;color:var(--text)}
 .dlghead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 details>summary{cursor:pointer;font-weight:600;padding:4px 0}
@@ -100,6 +113,21 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
 </style>
 </head>
 <body>
+<button id="idxBtn" aria-label="Notes index" title="Search your notes">[ 🔍 Index ]</button>
+<aside id="idxDrawer" aria-hidden="true">
+  <div class="dlghead"><h2>Notes index</h2><button id="idxClose">Close</button></div>
+  <div class="row"><input id="nSearch" type="search" placeholder="Search all notes…" style="flex:1;min-width:0" autocomplete="off"></div>
+  <div class="row">
+    <select id="nYear" aria-label="Year"><option value="">Year</option></select>
+    <select id="nMonth" aria-label="Month"><option value="">Month</option></select>
+    <select id="nWeek" aria-label="Week"><option value="">Week</option></select>
+    <select id="nSubject" aria-label="Subject"><option value="">Subject</option></select>
+    <select id="nDay" aria-label="Day of week"><option value="">Day</option></select>
+  </div>
+  <div class="row"><button id="nRescan">Rescan Drive</button><button id="nDrafts">Drafts (0)</button><button id="nExternal">External AI…</button></div>
+  <div id="nStatus" class="hint"></div>
+  <div id="nResults"></div>
+</aside>
 <main>
   <div class="titlebar">
     <h1>ADPCM Log Studio</h1>
@@ -265,9 +293,11 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
       <summary>Gemini chat</summary>
       <div class="row">
         <button id="chatNew">New chat</button>
+        <button id="chatDrafts">Drafts (0)</button>
         <button id="chatPick">Attach audio…</button>
       </div>
       <div id="chatFiles" class="hint"></div>
+      <div class="row"><label class="check"><input id="chatKeep" type="checkbox" checked> Keep the audio attached for my next questions</label></div>
       <div id="chatLog"></div>
       <div class="row" style="align-items:flex-end">
         <textarea id="chatIn" rows="2" placeholder="Message (Ctrl+Enter sends)"></textarea>
@@ -277,11 +307,51 @@ button.danger{border-color:#7a3a3a;color:#ffb0b0}
     </details>
   </fieldset>
 
+  <dialog id="draftDlg">
+    <div class="dlghead"><h2>Review draft note</h2><button id="dClose">Close</button></div>
+    <div id="dInfo" class="hint"></div>
+    <div class="row"><label class="lbl" for="dTitle">Title</label><input id="dTitle" type="text" style="flex:1;min-width:200px"></div>
+    <div class="row"><label class="lbl" for="dDate">Class date</label><input id="dDate" type="date"><span id="dDay" class="hint"></span></div>
+    <div class="row"><label class="lbl" for="dSubject">Subject</label><select id="dSubject"></select><label class="lbl" for="dWeek">Week</label><select id="dWeek"></select></div>
+    <div class="row"><label class="lbl" for="dAudio">Source audio</label><input id="dAudio" type="text" style="flex:1;min-width:200px"></div>
+    <div class="row"><label class="lbl" for="dYt">YouTube link</label><input id="dYt" type="text" style="flex:1;min-width:200px"></div>
+    <label class="lbl" for="dSummary">Summary &amp; key takeaways</label>
+    <textarea id="dSummary" rows="10"></textarea>
+    <label class="lbl" for="dStamps">Timestamps (one per line, like 12:45 - Problem solving)</label>
+    <textarea id="dStamps" rows="4"></textarea>
+    <div id="dWarn" class="hint err"></div>
+    <div class="row"><button id="dAccept" class="primary">[ Accept &amp; Save to Notes ]</button><button id="dDiscard">Discard this draft</button></div>
+    <div class="hint">Nothing reaches your notes until you press Accept. Saved notes are never deleted by this app.</div>
+  </dialog>
+  <dialog id="extDlg">
+    <div class="dlghead"><h2>Use an outside AI</h2><button id="extClose">Close</button></div>
+    <div class="hint">1) Copy this prompt into ChatGPT, Claude or Gemini (with your audio or transcript). 2) Paste its reply below.</div>
+    <textarea id="extPrompt" rows="8" readonly></textarea>
+    <div class="row"><button id="extCopy">Copy prompt</button></div>
+    <label class="lbl" for="extReply">The AI's reply</label>
+    <textarea id="extReply" rows="8" placeholder="---&#10;title: ...&#10;date: ...&#10;subject: ...&#10;---"></textarea>
+    <div id="extNote" class="hint"></div>
+    <div class="row"><button id="extMake" class="primary">Make a draft to review</button></div>
+  </dialog>
+  <dialog id="corrDlg">
+    <div class="dlghead"><h2>Correct a note</h2><button id="cClose">Close</button></div>
+    <div id="cInfo" class="hint"></div>
+    <label class="lbl" for="cView">Current note (read only)</label>
+    <textarea id="cView" rows="9" readonly></textarea>
+    <label class="lbl" for="cText">Correction (added to the Corrections Log with the time)</label>
+    <textarea id="cText" rows="3"></textarea>
+    <label class="lbl" for="cUpdate">Updated summary (optional, added as an update block below the note)</label>
+    <textarea id="cUpdate" rows="4"></textarea>
+    <div id="cNote" class="hint"></div>
+    <div class="row"><button id="cSave" class="primary">[ Add correction ]</button><a id="cDrive" target="_blank" rel="noopener">Open in Drive</a></div>
+    <div class="hint">Corrections are only ever added. Nothing in the note is removed or overwritten.</div>
+  </dialog>
   <dialog id="gemDlg">
-    <div class="dlghead"><h2>Attach audio exports</h2><button id="gemCancel">Cancel</button></div>
+    <div class="dlghead"><h2>Choose audio for Gemini</h2><button id="gemCancel">Cancel</button></div>
+    <div class="row"><input id="gemSearch" type="search" placeholder="Search your exports…" style="flex:1;min-width:0" autocomplete="off"></div>
     <div id="gemList" class="scroll" style="max-height:50vh"></div>
-    <div class="row"><button id="gemGo" class="primary">Attach selected</button></div>
-    <div class="hint">A cloud job uploads the files to Gemini, so your phone doesn't. Gemini keeps them for 48 hours.</div>
+    <div class="row"><button id="gemGo" class="primary">Use selected</button><span id="gemCount" class="hint"></span></div>
+    <div class="hint">Files you already used in the last 2 days are ready instantly. New ones are uploaded by a cloud job, so your phone doesn't upload anything.</div>
   </dialog>
 
   <fieldset>
@@ -1523,11 +1593,17 @@ function loadGemSettings() { const g = gem(); for (const id of GEM_IDS) if (g[id
 function saveGemSettings() { const g = {}; for (const id of GEM_IDS) g[id] = $("#" + id).value; g.gAuto = $("#gAuto").checked; localStorage.setItem(GEM_KEY, JSON.stringify(g)); }
 $("#dlg").addEventListener("input", e => { if (GEM_IDS.includes(e.target.id)) saveGemSettings(); });
 $("#dlg").addEventListener("change", e => { if (e.target.id === "gAuto") saveGemSettings(); });
-let chat = (() => { try { return JSON.parse(localStorage.getItem(CHAT_KEY)); } catch (e) { return null; } })() || {files: [], msgs: []};
+let chat = (() => { try { return JSON.parse(localStorage.getItem(CHAT_KEY)); } catch (e) { return null; } })() || {msgs: []};
+chat.selected = chat.selected || chat.files || [];          // audio chosen for the next questions
+if (chat.keep == null) chat.keep = true;
+delete chat.files; delete chat.expires;
+const GEMFILES_KEY = "logstudio.gemfiles";                  // driveId -> uploaded Gemini file (valid for 48 h)
+const gemCache = () => { try { return JSON.parse(localStorage.getItem(GEMFILES_KEY) || "{}"); } catch (e) { return {}; } };
+const gemFresh = f => !!(f && f.uri && Date.parse(f.expires) > Date.now() + 60000);
 chat.contents = chat.contents || chat.msgs.filter(m => m.role !== "tool").map(m => ({role: m.role, parts: [{text: m.text}]}));
 let chatBusy = false;
 const saveChat = () => localStorage.setItem(CHAT_KEY, JSON.stringify(chat));
-const chatExpired = () => chat.files.length > 0 && chat.expires && Date.now() > Date.parse(chat.expires);
+const chatExpired = () => chat.selected.some(f => !gemFresh(f));
 function chatNote(t, bad) { const n = $("#chatNote"); n.textContent = t || ""; n.className = "hint" + (bad ? " err" : ""); }
 function renderChat() {
   const box = $("#chatLog"); box.textContent = "";
@@ -1543,12 +1619,22 @@ function renderChat() {
     box.append(d);
   }
   box.scrollTop = box.scrollHeight;
-  $("#chatFiles").textContent = chat.files.length
-    ? "Attached: " + chat.files.map(x => x.display).join(", ") + (chatExpired() ? "  (EXPIRED: attach again)" : "")
-    : "No audio attached. Tap “Attach audio…” to choose from your exports.";
+  const cf = $("#chatFiles"); cf.textContent = "";
+  if (!chat.selected.length) cf.textContent = "No audio attached. Tap “Attach audio…” to search your exports.";
+  else {
+    chat.selected.forEach((f, i) => {
+      const c = document.createElement("span"); c.className = "chip"; c.textContent = f.display;
+      if (!gemFresh(f)) c.append(" (expired)");
+      const x = document.createElement("button"); x.textContent = "✕"; x.title = "Remove";
+      x.onclick = () => { chat.selected.splice(i, 1); saveChat(); renderChat(); };
+      c.append(x); cf.append(c);
+    });
+    cf.append(" sent with your next question" + (chat.keep ? "s" : ""));
+  }
+  $("#chatKeep").checked = chat.keep;
 }
 /* --- tools: Gemini can look things up and start cloud exports. Nothing here loads the waveform, the master or any audio. --- */
-const GEM_BUILTIN = `You are the assistant inside Log Studio, a tool that merges long audio logs and exports parts of them. You have tools to look up jobs and exports and to start cloud exports (audio cuts, waveform videos). Rules: times are seconds from the start of the whole log unless the user says otherwise (accept h:mm:ss and convert). Call get_job before cutting so times stay inside the log. If audio is attached to this chat, time 0 of an attached file is the start of that exported file; use map_export_time to convert a time in it to log time. Starting an export uploads files (a video may be published to YouTube), so say briefly what you are about to start. Never invent job or export IDs. Keep answers short.`;
+const GEM_BUILTIN = `You are the assistant inside Log Studio, a tool that merges long audio logs and exports parts of them. You have tools to look up jobs and exports and to start cloud exports (audio cuts, waveform videos). Rules: times are seconds from the start of the whole log unless the user says otherwise (accept h:mm:ss and convert). Call get_job before cutting so times stay inside the log. If audio is attached to this chat, time 0 of an attached file is the start of that exported file; use map_export_time to convert a time in it to log time. Starting an export uploads files (a video may be published to YouTube), so say briefly what you are about to start. Never invent job or export IDs. Keep answers short. When the user asks for a study note, call propose_note: it only creates a DRAFT that the user must review and accept, so write it from what is actually in the audio, mark anything unclear as "(unclear)", and never invent facts, formulas, links or timestamps. Use search_notes to answer questions from the user's saved notes.`;
 const SEGS_SCHEMA = {type: "ARRAY", description: "Pieces of the log to include, in order, in seconds from the start of the log. Omit for the whole log.",
   items: {type: "OBJECT", properties: {start: {type: "NUMBER"}, end: {type: "NUMBER"}}, required: ["start", "end"]}};
 const GEM_TOOLS = [{functionDeclarations: [
@@ -1565,7 +1651,15 @@ const GEM_TOOLS = [{functionDeclarations: [
    parameters: {type: "OBJECT", properties: {job_id: {type: "STRING"}, segments: SEGS_SCHEMA, prefix: {type: "STRING"}, title: {type: "STRING"},
      part_minutes: {type: "NUMBER"}, resolution: {type: "STRING", enum: ["854x480", "1280x720", "1920x1080"]}, lite: {type: "BOOLEAN", description: "12 fps, faster"},
      mode: {type: "STRING", enum: ["visualizer", "still"]}, youtube: {type: "BOOLEAN"}, drive_copy: {type: "BOOLEAN"}}, required: ["job_id"]}},
-  {name: "list_runs", description: "Recent cloud runs and their status (queued, running, success, failure)."}
+  {name: "list_runs", description: "Recent cloud runs and their status (queued, running, success, failure)."},
+  {name: "propose_note", description: "Create a DRAFT study note for the user to review. Nothing is saved to the notes until the user presses Accept. Use only what is actually in the audio.",
+   parameters: {type: "OBJECT", properties: {title: {type: "STRING"}, subject: {type: "STRING", enum: ["math", "science", "mapeh", "filipino", "english"]},
+     date: {type: "STRING", description: "The day the class happened, YYYY-MM-DD"}, summary_markdown: {type: "STRING", description: "Summary and key takeaways, in Markdown"},
+     timestamps: {type: "ARRAY", items: {type: "OBJECT", properties: {time: {type: "STRING", description: "MM:SS or HH:MM:SS"}, text: {type: "STRING"}}, required: ["time", "text"]}},
+     source_audio: {type: "STRING"}, youtube_url: {type: "STRING"}}, required: ["title", "subject", "date", "summary_markdown"]}},
+  {name: "search_notes", description: "Search the user's saved notes (read only). Returns the best matches with a short snippet.",
+   parameters: {type: "OBJECT", properties: {query: {type: "STRING"}, subject: {type: "STRING"}, year: {type: "INTEGER"}, month: {type: "INTEGER"}, week: {type: "STRING", description: "week_1 to week_6 (Monday-first weeks within the month)"},
+     day_of_week: {type: "INTEGER", description: "ISO: Monday = 1 ... Sunday = 7"}}}}
 ]}];
 
 async function readMeta(jobId) {                           // the small _meta.json only
@@ -1647,6 +1741,18 @@ async function runTool(name, args, say) {
       say("✔ Started. It will appear in the Audio tree when the cloud job finishes.");
       return {result: {started: true, ...r, note: "Progress: list_runs. The result appears in list_exports when done."}, acted: true};
     }
+    if (name === "propose_note") {
+      const stamps = (Array.isArray(args.timestamps) ? args.timestamps : []).slice(0, 200).map(x => `${String(x.time || "").slice(0, 12)} - ${String(x.text || "")}`).join("\n");
+      const d = makeDraft({title: args.title, subject: args.subject, date: args.date, summary: args.summary_markdown, timestamps: stamps,
+                           source_audio: args.source_audio, youtube_url: args.youtube_url}, "gemini");
+      say(`📝 Draft created: "${d.title}". Review it under Drafts. Nothing is saved yet.`);
+      return ok({draft_created: true, note: "The user will review it and press Accept. It is not saved to the notes yet."});
+    }
+    if (name === "search_notes") {
+      await loadNotesIndex();
+      const hits = searchNotes(args.query, {year: args.year, month: args.month, week: args.week, subject: args.subject, dow: args.day_of_week}).slice(0, 8);
+      return ok({count: hits.length, notes: hits.map(n => ({id: n.id, title: n.title, date: n.date, subject: n.subject, week: n.week, day_of_week: n.day_of_week, snippet: snippetOf(n, args.query)}))});
+    }
     if (name === "list_runs") {
       const r = await gh("/actions/runs?per_page=30");
       if (!r.ok) throw new Error("GitHub " + r.status);
@@ -1657,9 +1763,24 @@ async function runTool(name, args, say) {
   } catch (e) { return ok({error: e.message || String(e)}); }
 }
 
+// Only the newest question carries the audio. Earlier questions keep their text, but their audio is replaced by a note,
+// so re-selecting audio never piles up copies in the conversation (audio is the expensive part of the context).
+function contentsForSend() {
+  let cur = -1;
+  for (let i = chat.contents.length - 1; i >= 0; i--) {
+    const c = chat.contents[i];
+    if (c.role === "user" && c.parts.some(p => p.text !== undefined)) { cur = i; break; }
+  }
+  return chat.contents.map((c, i) => {
+    if (i === cur || c.role !== "user" || !c.parts.some(p => p.fileData)) return c;
+    const names = c.parts.filter(p => /^Audio file \d+: /.test(p.text || "")).map(p => p.text.replace(/^Audio file \d+: /, ""));
+    const rest = c.parts.filter(p => !p.fileData && !/^Audio file \d+: /.test(p.text || ""));
+    return {role: "user", parts: [{text: `[Audio attached to this earlier question, not re-sent: ${names.join(", ")}]`}, ...rest]};
+  });
+}
 async function geminiCall(g) {
   const sys = GEM_BUILTIN + ((g.gSystem || "").trim() ? "\n\n" + g.gSystem.trim() : "");
-  const body = {contents: chat.contents, tools: GEM_TOOLS, systemInstruction: {parts: [{text: sys}]}};
+  const body = {contents: contentsForSend(), tools: GEM_TOOLS, systemInstruction: {parts: [{text: sys}]}};
   const model = (g.gModel || "gemini-3-flash-preview").trim();
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {method: "POST", headers: {"Content-Type": "application/json", "x-goog-api-key": g.gKey}, body: JSON.stringify(body)});
@@ -1694,22 +1815,18 @@ async function chatSend() {
   const g = gem(), text = $("#chatIn").value.trim();
   if (!text || chatBusy) return;
   if (!g.gKey) { $("#dlg").showModal(); return chatNote("Add your Gemini API key in Settings first.", true); }
-  if (chatExpired()) return chatNote("The attached audio has expired (Gemini keeps files for 48 hours). Attach it again.", true);
+  if (chatExpired()) return chatNote("Some attached audio has expired (Gemini keeps files for 48 hours). Remove it, or tap Attach audio to refresh it.", true);
   chatBusy = true; $("#chatSend").disabled = true; chatNote("Thinking…");
   const cp = {contents: chat.contents.length, msgs: chat.msgs.length}, st = {acted: false};
   const parts = [];
-  // Always re-attach the audio files so Gemini doesn't forget them across turns
-  if (chat.files.length && !chatExpired()) {
-    chat.files.forEach((f, k) => {
-      parts.push({text: `Audio file ${k + 1}: ${f.display}`});
-      parts.push({fileData: {mimeType: f.mime, fileUri: f.uri}});
-    });
-  }
+  chat.selected.forEach((f, k) => { parts.push({text: `Audio file ${k + 1}: ${f.display}`}); parts.push({fileData: {mimeType: f.mime, fileUri: f.uri}}); });
   parts.push({text: g.gPrefix ? g.gPrefix + " " + text : text});
   chat.contents.push({role: "user", parts}); chat.msgs.push({role: "user", text});
   $("#chatIn").value = ""; renderChat();
   try {
-    await chatTurn(g, st); saveChat(); chatNote("");
+    await chatTurn(g, st);
+    if (!chat.keep) chat.selected = [];                     // "keep attached" off: the audio is for this question only
+    saveChat(); chatNote("");
   } catch (e) {
     if (st.acted) {                                         // an export already started: keep the record, don't offer to resend
       chat.contents.push({role: "model", parts: [{text: "(stopped: " + (e.message || e) + ")"}]});
@@ -1724,9 +1841,22 @@ $("#chatSend").onclick = chatSend;
 $("#chatIn").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); chatSend(); } });
 $("#chatNew").onclick = () => {
   if (chat.msgs.length && !confirm("Start a new chat? The current conversation will be cleared.")) return;
-  chat = {files: [], msgs: [], contents: []}; saveChat(); renderChat(); chatNote("");
+  chat = {selected: chat.selected, keep: chat.keep, msgs: [], contents: []}; saveChat(); renderChat(); chatNote("");
 };
 const hms = s => { s = Math.round(s || 0); return `${Math.floor(s / 3600)}:${pad2(Math.floor(s / 60) % 60)}:${pad2(s % 60)}`; };
+$("#chatKeep").onchange = () => { chat.keep = $("#chatKeep").checked; saveChat(); renderChat(); };
+let gemPick = new Set();
+function gemFilter() {
+  const q = $("#gemSearch").value.toLowerCase().split(/\s+/).filter(Boolean);
+  let shown = 0;
+  for (const lab of $("#gemList").children) {
+    const hit = q.every(t => lab.dataset.s.includes(t));
+    lab.hidden = !hit; if (hit) shown++;
+  }
+  $("#gemCount").textContent = `${gemPick.size} selected` + (q.length ? ` · ${shown} match` : "");
+}
+$("#gemSearch").oninput = gemFilter;
+$("#gemList").onchange = e => { if (e.target.type === "checkbox") { e.target.checked ? gemPick.add(e.target.value) : gemPick.delete(e.target.value); gemFilter(); } };
 $("#chatPick").onclick = async () => {
   if (chatBusy || !needCfg()) return;
   try {
@@ -1736,48 +1866,440 @@ $("#chatPick").onclick = async () => {
     const list = S.index.exports.filter(e => e.kind === "audio" && e.driveFileId)
       .sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
     if (!list.length) return chatNote("No audio exports found. Export audio first.", true);
-    $("#gemList").innerHTML = list.map(e => `<label><input type="checkbox" value="${esc(e.id)}">
-      <span>${esc(e.title || e.driveName)}<br><span class="hint">${esc(e.jobName || "")} · ${hms(e.duration)} · ${esc(fmtDate(Date.parse(e.created)))}</span></span></label>`).join("");
+    const cache = gemCache();
+    gemPick = new Set(chat.selected.map(f => f.driveId).filter(Boolean));
+    $("#gemList").innerHTML = list.map(e => {
+      const label = e.title || e.driveName || "";
+      const hay = `${label} ${e.jobName || ""} ${fmtDate(Date.parse(e.created))} ${e.created || ""} part ${e.part || ""} ${e.kind}`.toLowerCase();
+      return `<label data-s="${esc(hay)}"><input type="checkbox" value="${esc(e.driveFileId)}" ${gemPick.has(e.driveFileId) ? "checked" : ""}>
+      <span>${esc(label)}${gemFresh(cache[e.driveFileId]) ? " ✓" : ""}<br><span class="hint">${esc(e.jobName || "")} · ${hms(e.duration)} · ${esc(fmtDate(Date.parse(e.created)))}</span></span></label>`;
+    }).join("");
+    $("#gemSearch").value = ""; gemFilter();
     chatNote(""); $("#gemDlg").showModal();
   } catch (e) { chatNote(e.message || String(e), true); }
 };
 $("#gemCancel").onclick = () => $("#gemDlg").close();
 $("#gemGo").onclick = async () => {
-  const ids = [...$("#gemList").querySelectorAll("input:checked")].map(i => i.value);
-  if (!ids.length) return;
+  const ids = [...gemPick];
   $("#gemDlg").close();
+  if (!ids.length) { chat.selected = []; saveChat(); renderChat(); return; }
   // attach in time order, parts of one export in order
-  const chosen = ids.map(id => S.index.exports.find(e => e.id === id)).filter(Boolean)
-    .sort((a, b) => (a.job || "").localeCompare(b.job || "") || Date.parse(a.created) - Date.parse(b.created) || (a.part || 0) - (b.part || 0));
-  if (chat.msgs.length && !confirm("Attaching audio starts a new chat. Continue?")) return;
+  const byFile = Object.fromEntries(S.index.exports.filter(e => e.driveFileId).map(e => [e.driveFileId, e]));
+  const order = ids.filter(id => byFile[id]).sort((x, y) => {
+    const a = byFile[x], b = byFile[y];
+    return (a.job || "").localeCompare(b.job || "") || Date.parse(a.created) - Date.parse(b.created) || (a.part || 0) - (b.part || 0);
+  });
   chatBusy = true; $("#chatSend").disabled = true;
   try {
-    const req = Math.random().toString(36).slice(2, 10);
-    const {ws} = await ensureWorkspace();
-    await dispatch({file_ids: chosen.map(e => e.driveFileId).join(","), workspace: ws, req}, GEM_WF);
-    chatNote("Cloud job started. This usually takes a minute or two…");
-    let res = null;
-    for (let i = 0; i < 180 && !res; i++) {
-      await wait(5000);
-      const gf = await findFolder("gemini", ws);
-      const f = gf ? (await listFolder(gf)).find(k => k.name === `gemini_${req}.json`) : null;
-      if (f) res = await driveJson(`files/${f.id}?alt=media`);
-      else if (i % 4 === 3) {
-        const run = await latestRun(GEM_WF);
-        if (run && Date.parse(run.created_at) >= Date.now() - 30 * 60000 && run.status === "completed" && run.conclusion !== "success")
-          throw new Error("The cloud upload failed. Check the GEMINI_API_KEY secret and the run's log on GitHub.");
+    const cache = gemCache(), need = order.filter(id => !gemFresh(cache[id]));
+    if (need.length) {                                      // only files not uploaded in the last 2 days need the cloud job
+      const req = Math.random().toString(36).slice(2, 10);
+      const {ws} = await ensureWorkspace();
+      await dispatch({file_ids: need.join(","), workspace: ws, req}, GEM_WF);
+      chatNote(`Cloud job started for ${need.length} new file(s). This usually takes a minute or two…`);
+      let res = null;
+      for (let i = 0; i < 180 && !res; i++) {
+        await wait(5000);
+        const gf = await findFolder("gemini", ws);
+        const f = gf ? (await listFolder(gf)).find(k => k.name === `gemini_${req}.json`) : null;
+        if (f) res = await driveJson(`files/${f.id}?alt=media`);
+        else if (i % 4 === 3) {
+          const run = await latestRun(GEM_WF);
+          if (run && Date.parse(run.created_at) >= Date.now() - 30 * 60000 && run.status === "completed" && run.conclusion !== "success")
+            throw new Error("The cloud upload failed. Check the GEMINI_API_KEY secret and the run's log on GitHub.");
+        }
       }
+      if (!res) throw new Error("Timed out waiting for the cloud upload.");
+      for (const f of res.files || []) if (f.driveId) cache[f.driveId] = {...f, expires: res.expires};
+      localStorage.setItem(GEMFILES_KEY, JSON.stringify(cache));
+      if (res.errors?.length) chatNote(`${res.files.length} uploaded, ${res.errors.length} failed: ${res.errors[0]}`, true);
     }
-    if (!res) throw new Error("Timed out waiting for the cloud upload.");
-    if (!res.files?.length) throw new Error("No file could be uploaded. " + (res.errors || []).join(" "));
-    chat = {files: res.files, expires: res.expires, msgs: [], contents: []}; saveChat(); renderChat();
-    chatNote(res.errors?.length ? `Attached ${res.files.length}; ${res.errors.length} failed.` : "Ready. Ask away.");
+    chat.selected = order.map(id => cache[id]).filter(f => gemFresh(f));
+    saveChat(); renderChat();                               // the conversation is untouched: no new chat
+    if (!need.length || !$("#chatNote").className.includes("err")) chatNote(chat.selected.length ? "Audio ready for your next question." : "");
   } catch (e) { chatNote(e.message || String(e), true); }
   finally { chatBusy = false; $("#chatSend").disabled = false; }
 };
 
+/* ------------------------------------------------------------- Notes: Drive archive, drafts, search */
+// Logger workspace/notes/years/2026/months/month_10/week_1/math.md  (+ video_links.md per week, + _index.json for search)
+const NOTE_SUBJECTS = ["math", "science", "mapeh", "filipino", "english"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];   // ISO: Monday = 1 ... Sunday = 7
+const DRAFTS_KEY = "logstudio.drafts";
+const drafts = () => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || "[]"); } catch (e) { return []; } };
+const saveDrafts = a => { localStorage.setItem(DRAFTS_KEY, JSON.stringify(a)); updateDraftButtons(); };
+function updateDraftButtons() { const t = `Drafts (${drafts().length})`; $("#nDrafts").textContent = t; $("#chatDrafts").textContent = t; }
+
+function dateInfo(str) {                                    // "2026-10-22" -> ISO weekday (Mon=1..Sun=7) and the week folder
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || "").trim());
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3], dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  // Monday-first weeks counted inside each month; a week cut by the month boundary simply continues in the next month's week_1
+  const isoFirst = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() || 7;
+  return {year: y, month: mo, day: d, iso: dt.getUTCDay() || 7, week: "week_" + (Math.floor((d - 1 + (isoFirst - 1)) / 7) + 1)};
+}
+const yq = v => JSON.stringify(String(v ?? ""));            // a YAML double-quoted string
+const safeMd = t => String(t || "").replace(/^---+\s*$/gm, "***").trim();    // a lone --- line would look like frontmatter
+function fmtStamps(t) {
+  return safeMd(t).split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    if (/^[-*]\s/.test(l)) return l;
+    const m = /^(\d{1,2}:\d{2}(?::\d{2})?)\s*[-–—:]?\s*(.*)$/.exec(l);
+    return m ? `- **${m[1]}** - ${m[2]}` : "- " + l;
+  }).join("\n");
+}
+function renderNote(n) {
+  const di = dateInfo(n.date), dn = DAY_NAMES[di.iso - 1];
+  const fm = [`id: ${yq(n.id)}`, `title: ${yq(n.title)}`, `date: ${yq(n.date)}`, `year: ${di.year}`, `month: ${di.month}`, `week: ${yq(n.week)}`,
+              `day_of_week: ${di.iso}  # (${dn} = Day ${di.iso})`, `subject: ${yq(n.subject)}`, `youtube_url: ${yq(n.youtube_url)}`, `verified: true`].join("\n");
+  const out = [`---\n${fm}\n---`, "", `## Session: ${n.title}`, `- **Date:** ${n.date} (Day ${di.iso} - ${dn})`];
+  if (n.source_audio) out.push(`- **Source Audio:** \`${n.source_audio}\``);
+  if (n.youtube_url) out.push(`- **YouTube Link:** [Watch Video Segment](${n.youtube_url})`);
+  out.push("", "### Summary & Key Takeaways", safeMd(n.summary) || "_(empty)_", "", "### Corrections Log", "",
+           "### Timestamps", fmtStamps(n.timestamps) || "_(none)_", "");
+  return out.join("\n");
+}
+function fmParse(txt) {                                     // the simple key: value frontmatter this app writes
+  const o = {};
+  for (const line of txt.split(/\r?\n/)) {
+    const m = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
+    if (!m) continue;
+    let v = m[2].trim();
+    if (v.startsWith('"')) { const e = /^"((?:[^"\\]|\\.)*)"/.exec(v); try { v = e ? JSON.parse('"' + e[1] + '"') : v.replace(/^"|"$/g, ""); } catch (x) { v = e ? e[1] : v; } }
+    else if (v.startsWith("'")) { const e = /^'((?:[^']|'')*)'/.exec(v); v = e ? e[1].replace(/''/g, "'") : v; }
+    else { v = v.replace(/\s+#.*$/, "").trim(); if (/^-?\d+$/.test(v)) v = +v; else if (v === "true") v = true; else if (v === "false") v = false; }
+    o[m[1]] = v;
+  }
+  return o;
+}
+function parseBlocks(text) {                                // one file can hold several notes, each starting with its own frontmatter
+  const re = /^---\r?\nid: [^\n]*\n[\s\S]*?\n---\r?\n/gm, starts = []; let m;
+  while ((m = re.exec(text))) starts.push({start: m.index, fmEnd: m.index + m[0].length, fm: fmParse(m[0].replace(/^---\r?\n/, "").replace(/\r?\n---\r?\n$/, ""))});
+  return starts.map((b, i) => ({...b, end: i + 1 < starts.length ? starts[i + 1].start : text.length}));
+}
+const entryOf = (b, text, path, fileId) => ({id: b.fm.id, title: b.fm.title, date: b.fm.date, year: b.fm.year, month: b.fm.month, week: b.fm.week,
+  day_of_week: b.fm.day_of_week, subject: b.fm.subject, youtube_url: b.fm.youtube_url || "", verified: !!b.fm.verified, path, fileId, body: text.slice(b.fmEnd, b.end).trim()});
+
+/* --- Drive helpers for notes (only ever create, read and append; nothing here deletes) --- */
+const noteDirs = {};
+async function ensurePath(parts) {
+  let parent = (await ensureWorkspace()).ws, key = "";
+  for (const name of parts) {
+    key += "/" + name;
+    if (!noteDirs[key + "@" + parent]) noteDirs[key + "@" + parent] = (await findFolder(name, parent)) || await createFolder(name, parent);
+    parent = noteDirs[key + "@" + parent];
+  }
+  return parent;
+}
+async function driveText(id) {
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {headers: {Authorization: "Bearer " + await token()}});
+  if (!r.ok) throw new Error("Drive: " + (await r.text()).slice(0, 200));
+  return r.text();
+}
+async function findFileIn(parent, name) {
+  const q = `name='${name}' and '${parent}' in parents and trashed=false`;
+  const f = await driveJson("files?fields=files(id,name)&q=" + encodeURIComponent(q));
+  return f.files.length ? f.files[0].id : null;
+}
+async function driveWriteText(parent, name, text, id, mime = "text/markdown") {
+  const t = await token();
+  if (id) {
+    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, {method: "PATCH",
+      headers: {Authorization: "Bearer " + t, "Content-Type": mime + "; charset=UTF-8"}, body: text});
+    if (!r.ok) throw new Error("Could not save: " + (await r.text()).slice(0, 150));
+    return id;
+  }
+  const b = "x" + Math.random().toString(36).slice(2);
+  const mp = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({name, parents: [parent]})}\r\n` +
+             `--${b}\r\nContent-Type: ${mime}; charset=UTF-8\r\n\r\n${text}\r\n--${b}--`;
+  const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+    {method: "POST", headers: {Authorization: "Bearer " + t, "Content-Type": "multipart/related; boundary=" + b}, body: mp});
+  if (!r.ok) throw new Error("Could not save: " + (await r.text()).slice(0, 150));
+  return (await r.json()).id;
+}
+async function appendText(parent, name, block) {            // existing text is kept exactly; the block is added after it
+  const id = await findFileIn(parent, name);
+  if (!id) return driveWriteText(parent, name, block + "\n", null);
+  let old = await driveText(id);
+  if (old && !old.endsWith("\n")) old += "\n";
+  return driveWriteText(parent, name, old + "\n" + block + "\n", id);
+}
+
+/* --- the search index: notes/_index.json (small, read when the drawer opens; no SQLite download needed) --- */
+let NIDX = null;
+async function notesDir() { return ensurePath(["notes"]); }
+async function loadNotesIndex(force) {
+  if (NIDX && !force) return NIDX;
+  const dir = await notesDir(), id = await findFileIn(dir, "_index.json");
+  if (id) { try { NIDX = JSON.parse(await driveText(id)); NIDX.fileId = id; return NIDX; } catch (e) {} }
+  NIDX = {version: 1, notes: [], fileId: null, missing: true};
+  return NIDX;
+}
+async function saveNotesIndex() {
+  const dir = await notesDir();
+  NIDX.fileId = await driveWriteText(dir, "_index.json", JSON.stringify({version: 1, updated: new Date().toISOString(), notes: NIDX.notes}), NIDX.fileId, "application/json");
+  delete NIDX.missing;
+}
+async function rescanNotes(say = () => {}) {                // rebuild the index from the Markdown files themselves
+  const dir = await notesDir(), notes = []; let files = 0;
+  const years = await findFolder("years", dir);
+  for (const y of years ? (await listFolder(years)).filter(f => f.mimeType === FOLDER) : []) {
+    const months = await findFolder("months", y.id);
+    for (const mo of months ? (await listFolder(months)).filter(f => f.mimeType === FOLDER) : [])
+      for (const wk of (await listFolder(mo.id)).filter(f => f.mimeType === FOLDER))
+        for (const f of (await listFolder(wk.id)).filter(f => /\.md$/i.test(f.name) && f.name !== "video_links.md")) {
+          say(`Scanning… ${++files} file(s)`);
+          const text = await driveText(f.id);
+          for (const b of parseBlocks(text)) if (b.fm.id) notes.push(entryOf(b, text, `${y.name}/${mo.name}/${wk.name}/${f.name}`, f.id));
+        }
+  }
+  NIDX = {version: 1, notes, fileId: NIDX?.fileId || await findFileIn(dir, "_index.json")};
+  await saveNotesIndex();
+  return notes.length;
+}
+function searchNotes(q, f = {}) {
+  const terms = String(q || "").toLowerCase().split(/\s+/).filter(Boolean), out = [];
+  for (const n of NIDX?.notes || []) {
+    if (f.year && n.year != f.year) continue;
+    if (f.month && n.month != f.month) continue;
+    if (f.week && n.week !== f.week) continue;
+    if (f.subject && n.subject !== f.subject) continue;
+    if (f.dow && n.day_of_week != f.dow) continue;
+    const title = String(n.title || "").toLowerCase(), head = `${title} ${n.subject} ${n.date}`, body = String(n.body || "").toLowerCase();
+    let ok = true, score = 0;
+    for (const t of terms) {
+      const inT = title.includes(t), inH = head.includes(t), inB = body.includes(t);
+      if (!inH && !inB) { ok = false; break; }
+      score += (inT ? 5 : 0) + (inH ? 2 : 0) + (inB ? 1 : 0);
+    }
+    if (ok) out.push({n, score});
+  }
+  out.sort((a, b) => b.score - a.score || String(b.n.date).localeCompare(String(a.n.date)));
+  return out.slice(0, 60).map(x => x.n);
+}
+function snippetOf(n, q) {
+  const body = String(n.body || "").replace(/^## Session:.*$/m, "").replace(/\s+/g, " ").trim(), t = String(q || "").toLowerCase().split(/\s+/).filter(Boolean)[0];
+  const i = t ? body.toLowerCase().indexOf(t) : -1, a = Math.max(0, i - 60);
+  return (a ? "…" : "") + body.slice(a, a + 200) + (body.length > a + 200 ? "…" : "");
+}
+
+/* --- drafts: AI output is never saved until you accept it --- */
+function makeDraft(f, origin) {
+  const title = String(f.title || "").trim(), date = String(f.date || "").trim(), subject = String(f.subject || "").trim().toLowerCase();
+  if (!title) throw new Error("The note needs a title.");
+  const di = dateInfo(date);
+  if (!di) throw new Error("The date must be a real date written YYYY-MM-DD.");
+  if (!NOTE_SUBJECTS.includes(subject)) throw new Error("The subject must be one of: " + NOTE_SUBJECTS.join(", ") + ".");
+  const summary = String(f.summary || "").trim();
+  if (!summary) throw new Error("The note needs a summary.");
+  const d = {did: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: title.slice(0, 200), date, subject, week: di.week,
+             summary: summary.slice(0, 40000), timestamps: String(f.timestamps || "").slice(0, 8000), source_audio: String(f.source_audio || "").slice(0, 200),
+             youtube_url: /^https?:\/\//i.test(f.youtube_url || "") ? String(f.youtube_url).trim() : "", origin, created: new Date().toISOString(), warn: f.warn || ""};
+  const a = drafts(); a.push(d); saveDrafts(a);
+  return d;
+}
+const splitSections = body => {
+  const out = []; let cur = {h: "", text: []};
+  for (const l of body.split(/\r?\n/)) { const m = /^#{2,4}\s*(.*)$/.exec(l); if (m) { out.push(cur); cur = {h: m[1].toLowerCase(), text: []}; } else cur.text.push(l); }
+  out.push(cur); return out.map(x => ({h: x.h, text: x.text.join("\n").trim()}));
+};
+function parseExternal(raw) {                               // the reply of ChatGPT / Claude / Gemini web, in the standard format
+  let t = String(raw || "").trim().replace(/^```[a-z]*\r?\n/i, "").replace(/\r?\n```\s*$/, "");
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(t);
+  if (!m) throw new Error("No frontmatter found. The reply must start with --- and the fields title, date, subject.");
+  const fm = fmParse(m[1]), secs = splitSections(m[2]);
+  const sum = secs.find(x => x.h.includes("summary")), ts = secs.find(x => x.h.includes("timestamp"));
+  const summary = sum ? sum.text : secs.filter(x => x !== ts && !x.h.startsWith("session")).map(x => (x.h ? "### " + x.h + "\n" : "") + x.text).join("\n\n").trim();
+  const di = dateInfo(fm.date); let warn = "";
+  if (di && fm.day_of_week != null && Number(fm.day_of_week) !== di.iso)
+    warn = `The AI wrote day_of_week ${fm.day_of_week}, but ${fm.date} is Day ${di.iso} (${DAY_NAMES[di.iso - 1]}). The correct day was used.`;
+  return {title: fm.title, date: fm.date, subject: fm.subject, youtube_url: fm.youtube_url, source_audio: fm.source_audio, summary, timestamps: ts ? ts.text : "", warn};
+}
+const externalPrompt = () => `You are helping me write a study note from a recorded class (I will give you the audio or a transcript).
+Reply with ONLY the note below, in exactly this format, with nothing before or after it.
+
+---
+title: "<short descriptive title>"
+date: "YYYY-MM-DD"
+subject: "<one of: ${NOTE_SUBJECTS.join(", ")}>"
+youtube_url: "<link to the video, or an empty string>"
+---
+
+### Summary & Key Takeaways
+<clear bullet points of what was actually taught>
+
+### Timestamps
+- **MM:SS** - <what happens>
+
+Rules: "date" is the day the class happened. Use only what is in the recording. If something is unclear, write "(unclear)" instead of guessing. Do not invent timestamps, formulas or links.`;
+
+function openDraft(did) {
+  const d = drafts().find(x => x.did === did); if (!d) return;
+  const dlg = $("#draftDlg"); dlg.dataset.did = did;
+  $("#dSubject").innerHTML = NOTE_SUBJECTS.map(x => `<option>${x}</option>`).join("");
+  $("#dWeek").innerHTML = [1, 2, 3, 4, 5, 6].map(n => `<option>week_${n}</option>`).join("");
+  $("#dTitle").value = d.title; $("#dDate").value = d.date; $("#dSubject").value = d.subject; $("#dWeek").value = d.week;
+  $("#dAudio").value = d.source_audio; $("#dYt").value = d.youtube_url; $("#dSummary").value = d.summary; $("#dStamps").value = d.timestamps;
+  $("#dInfo").textContent = d.origin === "gemini" ? "Written by Gemini. Check it against the recording before accepting." : "Pasted from an outside AI. Check it before accepting.";
+  $("#dWarn").textContent = d.warn || ""; dayHint(); dlg.showModal();
+}
+function dayHint() { const di = dateInfo($("#dDate").value); $("#dDay").textContent = di ? `Day ${di.iso} - ${DAY_NAMES[di.iso - 1]}` : "enter a valid date"; }
+$("#dDate").addEventListener("input", () => { dayHint(); const di = dateInfo($("#dDate").value); if (di) $("#dWeek").value = di.week; });
+$("#dClose").onclick = () => $("#draftDlg").close();
+$("#dDiscard").onclick = () => {                           // only a not-yet-saved draft can be thrown away; saved notes are never deleted
+  if (!confirm("Discard this draft? It has not been saved to your notes.")) return;
+  saveDrafts(drafts().filter(x => x.did !== $("#draftDlg").dataset.did)); $("#draftDlg").close(); renderDraftList();
+};
+$("#dAccept").onclick = async () => {
+  const dlg = $("#draftDlg"), did = dlg.dataset.did;
+  try {
+    const f = {title: $("#dTitle").value.trim(), date: $("#dDate").value.trim(), subject: $("#dSubject").value, summary: $("#dSummary").value.trim(),
+               timestamps: $("#dStamps").value, source_audio: $("#dAudio").value.trim(), youtube_url: $("#dYt").value.trim(), week: $("#dWeek").value};
+    const di = dateInfo(f.date);
+    if (!f.title || !di || !f.summary || !NOTE_SUBJECTS.includes(f.subject)) throw new Error("Fill in the title, a valid date, the subject and the summary.");
+    $("#dAccept").disabled = true; $("#dWarn").textContent = "Saving…";
+    await acceptNote(f, di); 
+    saveDrafts(drafts().filter(x => x.did !== did)); dlg.close(); renderDraftList();
+    chatNote("Saved to your notes."); idxStatus("Saved to your notes.");
+  } catch (e) { $("#dWarn").textContent = e.message || String(e); }
+  finally { $("#dAccept").disabled = false; }
+};
+async function acceptNote(f, di) {
+  await token();
+  const idx = await loadNotesIndex(true);                   // fresh copy, in case another device saved meanwhile
+  const id = `summary_${f.date.replace(/-/g, "")}_${pad2(idx.notes.filter(n => n.date === f.date).length + 1)}`;
+  const dir = await ensurePath(["notes", "years", String(di.year), "months", "month_" + pad2(di.month), f.week]);
+  const block = renderNote({...f, id}), name = f.subject + ".md";
+  const fileId = await appendText(dir, name, block);
+  if (f.youtube_url) {                                      // weekly list of video links
+    const lid = await findFileIn(dir, "video_links.md");
+    const line = `- ${f.date} · ${f.subject} · [${f.title.replace(/[\[\]]/g, "")}](${f.youtube_url})`;
+    if (!lid || !(await driveText(lid)).includes(f.youtube_url)) await appendText(dir, "video_links.md", line);
+  }
+  const b = parseBlocks(block)[0];
+  idx.notes.push(entryOf(b, block, `${di.year}/month_${pad2(di.month)}/${f.week}/${name}`, fileId));
+  await saveNotesIndex();
+}
+
+/* --- correcting a saved note: lines are only ever added --- */
+const stampNow = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+function insertCorrection(text, id, line) {
+  const b = parseBlocks(text).find(x => x.fm.id === id); if (!b) throw new Error("That note was not found in its file.");
+  const seg = text.slice(b.fmEnd, b.end), h = /^### Corrections Log[^\n]*\n/m.exec(seg);
+  let pos, ins;
+  if (h) {
+    const after = seg.slice(h.index + h[0].length), nx = /^#{2,4} /m.exec(after), sec = nx ? after.slice(0, nx.index) : after;
+    if (sec.trim()) { pos = b.fmEnd + h.index + h[0].length + sec.trimEnd().length; ins = "\n" + line; }
+    else { pos = b.fmEnd + h.index + h[0].length; ins = line + "\n"; }
+  } else { pos = b.end; ins = (text.slice(0, pos).endsWith("\n") ? "" : "\n") + "\n### Corrections Log\n" + line + "\n"; }
+  return {text: text.slice(0, pos) + ins + text.slice(pos), pos, ins};
+}
+function insertUpdate(text, id, md) {
+  const b = parseBlocks(text).find(x => x.fm.id === id); if (!b) throw new Error("That note was not found in its file.");
+  const pos = b.end, ins = (text.slice(0, pos).endsWith("\n") ? "" : "\n") + `\n#### Update [${stampNow()}]\n${safeMd(md)}\n`;
+  return {text: text.slice(0, pos) + ins + text.slice(pos), pos, ins};
+}
+let corrNote = null;
+async function openCorrect(n) {
+  try {
+    await token(); const text = await driveText(n.fileId), b = parseBlocks(text).find(x => x.fm.id === n.id);
+    if (!b) throw new Error("That note was not found in its file. Try Rescan Drive.");
+    corrNote = n; $("#cView").value = text.slice(b.start, b.end).trim(); $("#cText").value = ""; $("#cUpdate").value = ""; $("#cNote").textContent = "";
+    $("#cInfo").textContent = `${n.title} · ${n.date} · ${n.subject}`; $("#cDrive").href = `https://drive.google.com/file/d/${n.fileId}/view`;
+    $("#corrDlg").showModal();
+  } catch (e) { idxStatus(e.message || String(e), true); }
+}
+$("#cClose").onclick = () => $("#corrDlg").close();
+$("#cSave").onclick = async () => {
+  const corr = $("#cText").value.trim().replace(/\s*\n+\s*/g, " "), upd = $("#cUpdate").value.trim();
+  if (!corrNote || (!corr && !upd)) return;
+  try {
+    $("#cSave").disabled = true; $("#cNote").textContent = "Saving…"; await token();
+    const original = await driveText(corrNote.fileId); let text = original;
+    for (const step of [corr && (t => insertCorrection(t, corrNote.id, `- *[${stampNow()}]* ${corr}`)), upd && (t => insertUpdate(t, corrNote.id, upd))].filter(Boolean)) {
+      const r = step(text);
+      if (r.text.slice(0, r.pos) + r.text.slice(r.pos + r.ins.length) !== text) throw new Error("Safety check failed: this would change existing text, so nothing was saved.");
+      text = r.text;
+    }
+    await driveWriteText(null, null, text, corrNote.fileId);
+    const b = parseBlocks(text).find(x => x.fm.id === corrNote.id), idx = await loadNotesIndex(true), e = idx.notes.find(x => x.id === corrNote.id);
+    if (e && b) { e.body = text.slice(b.fmEnd, b.end).trim(); await saveNotesIndex(); }
+    $("#corrDlg").close(); idxStatus("Correction added."); renderResults();
+  } catch (e) { $("#cNote").textContent = e.message || String(e); }
+  finally { $("#cSave").disabled = false; }
+};
+
+/* --- the top-left drawer --- */
+const idxStatus = (t, bad) => { const n = $("#nStatus"); n.textContent = t || ""; n.className = "hint" + (bad ? " err" : ""); };
+function fillFilters() {
+  const keep = id => $("#" + id).value;
+  const set = (id, first, opts) => { const v = keep(id); $("#" + id).innerHTML = `<option value="">${first}</option>` + opts.map(([val, txt]) => `<option value="${val}">${txt}</option>`).join(""); $("#" + id).value = v; };
+  const years = [...new Set([...(NIDX?.notes || []).map(n => n.year), new Date().getFullYear()])].filter(Boolean).sort();
+  set("nYear", "Year", years.map(y => [y, y]));
+  set("nMonth", "Month", MONTH_NAMES.map((m, i) => [i + 1, m]));
+  set("nWeek", "Week", [1, 2, 3, 4, 5, 6].map(n => ["week_" + n, "week_" + n]));
+  set("nSubject", "Subject", NOTE_SUBJECTS.map(x => [x, x]));
+  set("nDay", "Day", DAY_NAMES.map((d, i) => [i + 1, `${i + 1} - ${d}`]));
+}
+let searchTimer = 0;
+function renderResults() {
+  const q = $("#nSearch").value, box = $("#nResults"); box.textContent = "";
+  const list = searchNotes(q, {year: $("#nYear").value, month: $("#nMonth").value, week: $("#nWeek").value, subject: $("#nSubject").value, dow: $("#nDay").value});
+  if (!NIDX?.notes.length) return idxStatus(NIDX?.missing ? "No notes yet. Accept a draft, or tap Rescan Drive." : "No notes yet.");
+  idxStatus(`${list.length} note(s)${list.length === 60 ? " (first 60)" : ""}`);
+  for (const n of list) {
+    const d = document.createElement("div"); d.className = "nres";
+    const t = document.createElement("b"); t.textContent = n.title; d.append(t);
+    const m = document.createElement("div"); m.className = "meta"; m.textContent = `${n.date} (Day ${n.day_of_week} - ${DAY_NAMES[(n.day_of_week || 1) - 1]}) · ${n.subject} · ${n.week} · ${MONTH_NAMES[(n.month || 1) - 1]} ${n.year}`; d.append(m);
+    const sn = document.createElement("div"); sn.className = "snip"; sn.textContent = snippetOf(n, q); d.append(sn);
+    if (/^https?:\/\//.test(n.youtube_url || "")) { const a = document.createElement("a"); a.href = n.youtube_url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Watch video"; d.append(a); }
+    const eb = document.createElement("button"); eb.textContent = "[ Edit / Correct ]"; eb.onclick = () => openCorrect(n); d.append(eb);
+    box.append(d);
+  }
+}
+function renderDraftList() {
+  const a = drafts(); updateDraftButtons();
+  if (!a.length) return renderResults();
+  const box = $("#nResults"); box.textContent = ""; idxStatus(`${a.length} draft(s) waiting for your review. Nothing is saved yet.`);
+  for (const d of a) {
+    const el = document.createElement("div"); el.className = "nres";
+    const t = document.createElement("b"); t.textContent = d.title; el.append(t);
+    const m = document.createElement("div"); m.className = "meta"; m.textContent = `${d.date} · ${d.subject} · ${d.origin === "gemini" ? "from Gemini" : "from an outside AI"} · DRAFT`; el.append(m);
+    const b = document.createElement("button"); b.textContent = "Review"; b.onclick = () => openDraft(d.did); el.append(b); box.append(el);
+  }
+}
+async function openDrawer() {
+  $("#idxDrawer").classList.add("open"); $("#idxDrawer").setAttribute("aria-hidden", "false");
+  if (!needCfg()) return;
+  try {
+    idxStatus("Loading the index…"); await token();
+    const had = NIDX; await loadNotesIndex();
+    if (!had && NIDX.missing) { const n = await rescanNotes(idxStatus); idxStatus(`Index built from Drive: ${n} note(s).`); }
+    fillFilters(); updateDraftButtons(); renderResults();
+  } catch (e) { idxStatus(e.message || String(e), true); }
+}
+const closeDrawer = () => { $("#idxDrawer").classList.remove("open"); $("#idxDrawer").setAttribute("aria-hidden", "true"); };
+$("#idxBtn").onclick = () => $("#idxDrawer").classList.contains("open") ? closeDrawer() : openDrawer();
+$("#idxClose").onclick = closeDrawer;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+for (const id of ["nYear", "nMonth", "nWeek", "nSubject", "nDay"]) $("#" + id).onchange = renderResults;
+$("#nSearch").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderResults, 120); };   // real-time as you type
+$("#nRescan").onclick = async () => { try { await token(); idxStatus("Scanning…"); const n = await rescanNotes(idxStatus); fillFilters(); renderResults(); idxStatus(`Rescanned: ${n} note(s).`); } catch (e) { idxStatus(e.message || String(e), true); } };
+$("#nDrafts").onclick = () => renderDraftList();
+$("#chatDrafts").onclick = () => { openDrawer(); renderDraftList(); };
+$("#nExternal").onclick = () => { $("#extPrompt").value = externalPrompt(); $("#extNote").textContent = ""; $("#extDlg").showModal(); };
+$("#extClose").onclick = () => $("#extDlg").close();
+$("#extCopy").onclick = () => { $("#extPrompt").select(); navigator.clipboard?.writeText($("#extPrompt").value).then(() => { $("#extNote").textContent = "Prompt copied."; }, () => { $("#extNote").textContent = "Select the text and copy it."; }); };
+$("#extMake").onclick = () => {
+  try {
+    const d = makeDraft(parseExternal($("#extReply").value), "external");
+    $("#extReply").value = ""; $("#extDlg").close(); renderDraftList(); openDraft(d.did);
+  } catch (e) { $("#extNote").textContent = e.message || String(e); }
+};
+
 /* ------------------------------------------------------------- start */
-loadCfg(); loadGemSettings(); renderChat(); refreshButtons(); renderSegs(); requestDraw(); loadRuns();
+loadCfg(); loadGemSettings(); updateDraftButtons(); renderChat(); refreshButtons(); renderSegs(); requestDraw(); loadRuns();
 </script>
 </body>
 </html>
