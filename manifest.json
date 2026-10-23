@@ -1,6 +1,6 @@
 {
   "name": "ADPCM Log Studio",
-  "short_name": "Log Studio",
+  "short_name": "Omnitrix Processor",
   "description": "Cloud audio log studio",
   "start_url": ".",
   "display": "standalone",
