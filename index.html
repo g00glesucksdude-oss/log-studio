@@ -2101,8 +2101,10 @@ const IDX_VER = 2, SNIP_LEN = 260;
 const subjKey = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function canonSubject(s) {                                  // "math" / "Math" / "a.p." -> the standard label; anything else is a custom subject kept as typed
   const raw = String(s || "").replace(/[\\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40), k = subjKey(raw);
-  return (k && NOTE_SUBJECTS.find(x => subjKey(x) === k)) || raw;
+  return (k && (NOTE_SUBJECTS.find(x => subjKey(x) === k) || SUBJECT_ALIASES[k])) || raw;
 }
+const SUBJECT_ALIASES = {mathematics: "Math", maths: "Math", aralingpanlipunan: "A.P.", socialstudies: "A.P.", physicaleducation: "P.E.", valueseducation: "EsP",
+  edukasyonsapagpapakatao: "EsP", technologyandlivelihoodeducation: "TLE", ict: "Computer", computerscience: "Computer", healtheducation: "Health", artseducation: "Arts"};
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
 const dayMs = s => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
 const msDay = ms => new Date(ms).toISOString().slice(0, 10);
@@ -2244,37 +2246,89 @@ function filterCards(cards, q, f = {}) {                    // filters only what
 }
 
 /* --- drafts: AI output is never saved until you accept it --- */
-function makeDraft(f, origin) {
-  const title = String(f.title || "").trim(), date = String(f.date || "").trim(), subject = canonSubject(f.subject);
-  if (!title) throw new Error("The note needs a title.");
-  const di = dateInfo(date);
-  if (!di) throw new Error("The date must be a real date written YYYY-MM-DD.");
-  if (!subjKey(subject)) throw new Error("The note needs a subject, for example: " + NOTE_SUBJECTS.join(", ") + ", or your own.");
-  if (subjKey(subject) === "videolinks") throw new Error("Choose a different subject name.");
-  const summary = String(f.summary || "").trim();
-  if (!summary) throw new Error("The note needs a summary.");
+const MONTH_IDX = Object.fromEntries(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].map((m, i) => [m, i + 1]));
+function normDate(v) {                                      // 2026-10-3, 2026/10/03, 2026-10-23 14:00, "October 23, 2026", 23/10/2026 -> YYYY-MM-DD (ambiguous 05/06/2026 is left alone)
+  const t = String(v || "").trim(), p = (y, m, d) => `${y}-${pad2(+m)}-${pad2(+d)}`; let m;
+  if ((m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s].*)?$/.exec(t))) return p(m[1], m[2], m[3]);
+  if ((m = /^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/.exec(t)) && MONTH_IDX[m[1].slice(0, 3).toLowerCase()]) return p(m[3], MONTH_IDX[m[1].slice(0, 3).toLowerCase()], m[2]);
+  if ((m = /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})$/.exec(t)) && MONTH_IDX[m[2].slice(0, 3).toLowerCase()]) return p(m[3], MONTH_IDX[m[2].slice(0, 3).toLowerCase()], m[1]);
+  if ((m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(t))) { if (+m[1] > 12) return p(m[3], m[2], m[1]); if (+m[2] > 12) return p(m[3], m[1], m[2]); }
+  return t;
+}
+const guessTitle = md => (String(md || "").split("\n").map(x => x.replace(/^[#>*\-\s\d.]+/, "").replace(/[*_`]/g, "").trim()).find(Boolean) || "Untitled note").slice(0, 80);
+function makeDraft(f, origin) {                             // origin "external" is lenient: gaps are filled in and reported as warnings; Gemini / manual stay strict
+  const lenient = origin === "external", warns = [];
+  let title = String(f.title || "").trim(), date = normDate(f.date), subject = canonSubject(f.subject), summary = String(f.summary || "").trim();
+  if (!title) {
+    if (!lenient) throw new Error("The note needs a title.");
+    title = guessTitle(summary); warns.push(`There was no title, so "${title}" was made up. Please fix it.`);
+  }
+  let di = dateInfo(date);
+  if (!di) {
+    if (!lenient) throw new Error("The date must be a real date written YYYY-MM-DD.");
+    warns.push((f.date ? `The date "${String(f.date).slice(0, 30)}" is not valid` : "There was no date") + ", so today's date was used. Set the real class date.");
+    date = todayStr(); di = dateInfo(date);
+  }
+  if (!subjKey(subject) || subjKey(subject) === "videolinks") {
+    if (!lenient) throw new Error(!subjKey(subject) ? "The note needs a subject, for example: " + NOTE_SUBJECTS.join(", ") + ", or your own." : "Choose a different subject name.");
+    subject = "General"; warns.push("There was no usable subject, so \"General\" was used. Pick the right one.");
+  }
+  if (!summary) throw new Error(lenient ? "There is nothing to save: the reply has no text." : "The note needs a summary.");
   const d = {did: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: title.slice(0, 200), date, subject, week: di.week,
              summary: summary.slice(0, 40000), timestamps: String(f.timestamps || "").slice(0, 8000), source_audio: String(f.source_audio || "").slice(0, 200),
-             youtube_url: /^https?:\/\//i.test(f.youtube_url || "") ? String(f.youtube_url).trim() : "", origin, created: new Date().toISOString(), warn: f.warn || ""};
+             youtube_url: /^https?:\/\//i.test(f.youtube_url || "") ? String(f.youtube_url).trim() : "", origin, created: new Date().toISOString(), warn: [f.warn, ...warns].filter(Boolean).join(" ")};
   const a = drafts(); a.push(d); saveDrafts(a);
   return d;
 }
-const splitSections = body => {
-  const out = []; let cur = {h: "", text: []};
-  for (const l of body.split(/\r?\n/)) { const m = /^#{2,4}\s*(.*)$/.exec(l); if (m) { out.push(cur); cur = {h: m[1].toLowerCase(), text: []}; } else cur.text.push(l); }
+const splitSections = body => {                             // ## and ### start a section; #### only for Timestamps; headings inside code fences are ignored
+  const out = []; let cur = {h: "", text: []}, fence = false;
+  for (const l of body.split(/\r?\n/)) {
+    if (/^\s*```/.test(l)) fence = !fence;
+    const m = !fence && /^(#{2,4})\s+(.*)$/.exec(l);
+    if (m && (m[1].length < 4 || /timestamp/i.test(m[2]))) { out.push(cur); cur = {h: m[2].replace(/[*_`]/g, "").toLowerCase(), text: []}; } else cur.text.push(l);
+  }
   out.push(cur); return out.map(x => ({h: x.h, text: x.text.join("\n").trim()}));
 };
-function parseExternal(raw) {                               // the reply of ChatGPT / Claude / Gemini web, in the standard format
-  let t = String(raw || "").trim().replace(/^```[a-z]*\r?\n/i, "").replace(/\r?\n```\s*$/, "");
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(t);
-  if (!m) throw new Error("No frontmatter found. The reply must start with --- and the fields title, date, subject.");
-  const fm = fmParse(m[1]), secs = splitSections(m[2]);
+function parseExternal(raw) {                               // lenient: never fails over missing pieces; it fills gaps and reports them as warnings
+  let t = String(raw || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim(); const warns = [];
+  if (!t) throw new Error("Nothing was pasted.");
+  const open = /^```[\w-]*[ \t]*\n(?=\s*(?:---|\{)[ \t]*\n)/m.exec(t);         // the AI wrapped the note in a code block (maybe with chatter around it)
+  if (open) { t = t.slice(open.index + open[0].length); const e = t.lastIndexOf("\n```"); if (e >= 0) t = t.slice(0, e); }
+  if (/^\{[\s\S]*\}$/.test(t)) {                             // some AIs answer in JSON
+    try {
+      const j = JSON.parse(t), g = k => j[k] ?? j[k[0].toUpperCase() + k.slice(1)];
+      return {title: g("title"), date: g("date"), subject: g("subject"), youtube_url: g("youtube_url"), source_audio: g("source_audio"),
+        summary: String(g("summary") ?? g("summary_markdown") ?? g("content") ?? ""), timestamps: String(g("timestamps") ?? ""), warn: "The reply was JSON, not the standard note format."};
+    } catch (e) {}
+  }
+  const st = t.search(/^---[ \t]*$/m); if (st > 0) t = t.slice(st);                 // chatter before the note
+  const m = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n([\s\S]*))?$/.exec(t), fixQ = x => x.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+  let fm = {}, body;
+  if (m) {
+    const r0 = fmParse(fixQ(m[1])); for (const k of Object.keys(r0)) fm[k.toLowerCase()] = r0[k];
+    body = m[2] || "";
+  } else {                                                  // no (closed) frontmatter: pick "title: ..." style lines from the top, the rest is the body
+    warns.push(t.startsWith("---") ? "The frontmatter was not closed with a second --- line." : "There was no --- frontmatter block.");
+    const keep = [], found = []; let fence = false, n = 0;
+    for (const l of t.replace(/^---[ \t]*\n/, "").split("\n")) {
+      if (/^\s*```/.test(l)) fence = !fence;
+      const km = !fence && n++ < 15 && /^\s*[*_>#-]*\s*\**(title|date|subject|youtube_url|source_audio|day_of_week)\**\s*:\s*\**\s*(.*?)\**\s*$/i.exec(l);
+      if (km) found.push(km[1].toLowerCase() + ": " + fixQ(km[2])); else keep.push(l);
+    }
+    fm = fmParse(found.join("\n")); body = keep.join("\n");
+  }
+  if (!fm.title) { const h = /^#\s+(.+)$/m.exec(body); if (h) { fm.title = h[1].replace(/[*_`]/g, "").trim(); body = body.replace(h[0], ""); } }
+  const secs = splitSections(body);
   const sum = secs.find(x => x.h.includes("summary")), ts = secs.find(x => x.h.includes("timestamp"));
-  const summary = sum ? sum.text : secs.filter(x => x !== ts && !x.h.startsWith("session")).map(x => (x.h ? "### " + x.h + "\n" : "") + x.text).join("\n\n").trim();
-  const di = dateInfo(fm.date); let warn = "";
+  let summary = sum ? sum.text : "";
+  if (!summary.trim()) {
+    summary = secs.filter(x => x !== ts && !x.h.startsWith("session")).map(x => (x.h ? "### " + x.h + "\n" : "") + x.text).join("\n\n").trim();
+    warns.push(sum ? "The summary section was empty, so the rest of the reply was used." : "There was no Summary section, so the whole reply was used as the summary.");
+  }
+  const di = dateInfo(normDate(fm.date));
   if (di && fm.day_of_week != null && Number(fm.day_of_week) !== di.iso)
-    warn = `The AI wrote day_of_week ${fm.day_of_week}, but ${fm.date} is Day ${di.iso} (${DAY_NAMES[di.iso - 1]}). The correct day was used.`;
-  return {title: fm.title, date: fm.date, subject: fm.subject, youtube_url: fm.youtube_url, source_audio: fm.source_audio, summary, timestamps: ts ? ts.text : "", warn};
+    warns.push(`The AI wrote day_of_week ${fm.day_of_week}, but ${normDate(fm.date)} is Day ${di.iso} (${DAY_NAMES[di.iso - 1]}). The correct day was used.`);
+  return {title: fm.title, date: fm.date, subject: fm.subject, youtube_url: fm.youtube_url, source_audio: fm.source_audio, summary, timestamps: ts ? ts.text : "", warn: warns.join(" ")};
 }
 const externalPrompt = () => `You are helping me write a study note from a recorded class (I will give you the audio or a transcript).
 Reply with ONLY the note below, in exactly this format, with nothing before or after it.
